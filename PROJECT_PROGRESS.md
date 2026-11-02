@@ -183,3 +183,18 @@ The requested CMS is not yet complete. The financial transaction, campaign, rece
 - No code change was needed in the controller or model; their column names match the real schema.
 - Tests added to `tests/Feature/BulkSmsCampaignTest.php`: empty list, history permission, real per-campaign statistics, invalid status filter, missing creation data. Fixed a stale prepare-campaign test (dispatcher argument, `SendBulkSmsBatch` assertion).
 - Deployments must run `php artisan migrate` after pulling these migrations.
+
+## UI/Settings/SMS gateway improvement programme
+
+### Phase 1 - Audit (complete)
+- No gateway abstraction existed; SwalaSmsService was called directly from SendFinancialSms, SendBulkSmsBatch, PrepareBulkSmsCampaign and FinancialSettingsController.
+- Settings were uncached (a query per key); system settings UI exposes only short name, community prefix, language and logo.
+- No generic live search; all list pages use GET-form server search. Events, Attendance, Visitors, Pastors and Announcements modules do not exist and get no menu items.
+- NextSMS docs (https://nextsms.co.tz/api-docs) were read. The Authorization header value is masked in the published page, so NextSMS authentication is pending confirmation from the dashboard docs. No NextSMS code has been written.
+
+### Phase 2 - Performance and shared layout (in progress)
+- Setting values are cached as one map (Setting::allCached) and flushed on every save/delete; AppSettings reads from it (removes the per-request Schema::hasTable check and per-key queries).
+- Added migration 2026_11_02_213542_add_listing_indexes_to_members_users_and_sms_logs (members status/name, users name, SMS logs created_at). Existing indexes already covered most filters; '%term%' LIKE searches cannot use a b-tree index.
+- Added tests/Feature/SettingsCacheTest.php.
+- Measured in-process against the real DB (1 member, 1 transaction, 4 SMS logs, so not representative of scale): dashboard ~75 ms, members ~70 ms, finance ~66 ms, SMS campaigns ~54 ms, settings page 33 queries. Assets: app.css 76.5 KB, app.js 54.5 KB (before gzip).
+- Known test note: MembersModuleTest "rejects invalid gender and future dates" fails only when the suite runs shortly after local midnight (UTC now()+1 day is still today in Africa/Dar_es_Salaam).

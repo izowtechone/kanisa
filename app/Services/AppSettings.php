@@ -3,7 +3,6 @@
 namespace App\Services;
 
 use App\Models\Setting;
-use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Storage;
 use Throwable;
 
@@ -35,9 +34,7 @@ class AppSettings
         }
 
         try {
-            $this->values = Schema::hasTable('settings')
-                ? Setting::query()->pluck('value', 'key')->all()
-                : [];
+            $this->values = Setting::allCached();
         } catch (Throwable) {
             $this->values = [];
         }
@@ -54,6 +51,7 @@ class AppSettings
 
     public function forget(): void
     {
+        Setting::flushCache();
         $this->values = null;
     }
 
