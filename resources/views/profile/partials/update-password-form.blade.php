@@ -1,47 +1,39 @@
 <section>
     <header>
-        <h2 class="text-lg font-medium text-gray-900 dark:text-gray-100">
-            {{ __('Update Password') }}
-        </h2>
-
-        <p class="mt-1 text-sm text-gray-600 dark:text-gray-400">
-            {{ __('Ensure your account is using a long, random password to stay secure.') }}
-        </p>
+        <h3 class="text-lg font-semibold text-white">{{ __('profile.password_title') }}</h3>
+        <p class="mt-1 text-sm text-slate-400">{{ __('profile.password_description') }}</p>
     </header>
 
-    <form method="post" action="{{ route('password.update') }}" class="mt-6 space-y-6">
+    <form method="post" action="{{ route('password.update') }}" class="mt-6 space-y-5" x-data="{ loading: false }" @submit="if (loading) { $event.preventDefault() } else { loading = true }">
         @csrf
         @method('put')
 
+        @php($passwordErrors = $errors->updatePassword)
+
         <div>
-            <x-input-label for="update_password_current_password" :value="__('Current Password')" />
-            <x-text-input id="update_password_current_password" name="current_password" type="password" class="mt-1 block w-full" autocomplete="current-password" />
-            <x-input-error :messages="$errors->updatePassword->get('current_password')" class="mt-2" />
+            <label for="update_password_current_password" class="field-label">{{ __('profile.current_password') }}</label>
+            <input id="update_password_current_password" name="current_password" type="password" class="field-input" autocomplete="current-password">
+            @foreach ($passwordErrors->get('current_password') as $message)<p class="field-error" role="alert">{{ $message }}</p>@endforeach
         </div>
 
         <div>
-            <x-input-label for="update_password_password" :value="__('New Password')" />
-            <x-text-input id="update_password_password" name="password" type="password" class="mt-1 block w-full" autocomplete="new-password" />
-            <x-input-error :messages="$errors->updatePassword->get('password')" class="mt-2" />
+            <label for="update_password_password" class="field-label">{{ __('profile.new_password') }}</label>
+            <input id="update_password_password" name="password" type="password" class="field-input" autocomplete="new-password">
+            <p class="field-hint">{{ __('auth_pages.password_rules') }}</p>
+            @foreach ($passwordErrors->get('password') as $message)<p class="field-error" role="alert">{{ $message }}</p>@endforeach
         </div>
 
         <div>
-            <x-input-label for="update_password_password_confirmation" :value="__('Confirm Password')" />
-            <x-text-input id="update_password_password_confirmation" name="password_confirmation" type="password" class="mt-1 block w-full" autocomplete="new-password" />
-            <x-input-error :messages="$errors->updatePassword->get('password_confirmation')" class="mt-2" />
+            <label for="update_password_password_confirmation" class="field-label">{{ __('profile.confirm_password') }}</label>
+            <input id="update_password_password_confirmation" name="password_confirmation" type="password" class="field-input" autocomplete="new-password">
+            @foreach ($passwordErrors->get('password_confirmation') as $message)<p class="field-error" role="alert">{{ $message }}</p>@endforeach
         </div>
 
         <div class="flex items-center gap-4">
-            <x-primary-button>{{ __('Save') }}</x-primary-button>
+            <button type="submit" class="btn-primary" :disabled="loading">{{ __('profile.save') }}</button>
 
             @if (session('status') === 'password-updated')
-                <p
-                    x-data="{ show: true }"
-                    x-show="show"
-                    x-transition
-                    x-init="setTimeout(() => show = false, 2000)"
-                    class="text-sm text-gray-600 dark:text-gray-400"
-                >{{ __('Saved.') }}</p>
+                <p x-data="{ show: true }" x-show="show" x-transition x-init="setTimeout(() => show = false, 3000)" class="text-sm text-emerald-300" role="status">{{ __('profile.saved') }}</p>
             @endif
         </div>
     </form>

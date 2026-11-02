@@ -1,58 +1,150 @@
-<p align="center"><a href="https://laravel.com" target="_blank"><img src="https://raw.githubusercontent.com/laravel/art/master/logo-lockup/5%20SVG/2%20CMYK/1%20Full%20Color/laravel-logolockup-cmyk-red.svg" width="400" alt="Laravel Logo"></a></p>
+# KKKT CMS
 
-<p align="center">
-<a href="https://github.com/laravel/framework/actions"><img src="https://github.com/laravel/framework/workflows/tests/badge.svg" alt="Build Status"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/dt/laravel/framework" alt="Total Downloads"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/v/laravel/framework" alt="Latest Stable Version"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/l/laravel/framework" alt="License"></a>
-</p>
+Church management system built with Laravel 13, PHP 8.3, MySQL, Blade, Tailwind CSS, and Alpine.js.
 
-## About Laravel
+## Requirements
 
-Laravel is a web application framework with expressive, elegant syntax. We believe development must be an enjoyable and creative experience to be truly fulfilling. Laravel takes the pain out of development by easing common tasks used in many web projects, such as:
+- PHP 8.3 or later with `ctype`, `curl`, `dom`, `fileinfo`, `filter`, `hash`, `iconv`, `mbstring`, `openssl`, `pcre`, `pdo_mysql`, `phar`, `session`, `tokenizer`, and `xml`
+- MySQL 8.0 or later
+- Composer 2
+- Apache with `mod_rewrite` and `.htaccess` enabled
+- HTTPS for the production domain
 
-- [Simple, fast routing engine](https://laravel.com/docs/routing).
-- [Powerful dependency injection container](https://laravel.com/docs/container).
-- Multiple back-ends for [session](https://laravel.com/docs/session) and [cache](https://laravel.com/docs/cache) storage.
-- Expressive, intuitive [database ORM](https://laravel.com/docs/eloquent).
-- Database agnostic [schema migrations](https://laravel.com/docs/migrations).
-- [Robust background job processing](https://laravel.com/docs/queues).
-- [Real-time event broadcasting](https://laravel.com/docs/broadcasting).
+Node.js is only needed when changing frontend source files. The compiled Vite assets are committed in `public/build`, so Node.js is not required on the hosting server.
 
-Laravel is accessible, powerful, and provides tools required for large, robust applications.
+## Shared hosting deployment
 
-## Learning Laravel
+Use a hosting account that provides SSH or a terminal, PHP 8.3, Composer, MySQL, and a scheduled cron job. Confirm those features with the host before deploying.
 
-Laravel has the most extensive and thorough [documentation](https://laravel.com/docs) and video tutorial library of all modern web application frameworks, making it a breeze to get started with the framework.
+### 1. Keep application code outside the public web root
 
-In addition, [Laracasts](https://laracasts.com) contains thousands of video tutorials on a range of topics including Laravel, modern PHP, unit testing, and JavaScript. Boost your skills by digging into our comprehensive video library.
+The safest setup is to set the domain's document root to the repository's `public` directory. For example:
 
-You can also watch bite-sized lessons with real-world projects on [Laravel Learn](https://laravel.com/learn), where you will be guided through building a Laravel application from scratch while learning PHP fundamentals.
-
-## Agentic Development
-
-Laravel's predictable structure and conventions make it ideal for AI coding agents like Claude Code, Cursor, and GitHub Copilot. Install [Laravel Boost](https://laravel.com/docs/ai) to supercharge your AI workflow:
-
-```bash
-composer require laravel/boost --dev
-
-php artisan boost:install
+```text
+/home/CPANEL_USER/kanisa/public
 ```
 
-Boost provides your agent 15+ tools and skills that help agents build Laravel applications while following best practices.
+Clone or upload the repository outside `public_html`, for example to `/home/CPANEL_USER/kanisa`. Never put `.env`, `vendor`, `storage`, or the application source directly in the public web root.
 
-## Contributing
+If the host requires `public_html`, copy the **contents** of `kanisa/public` into `public_html`. Then edit `public_html/index.php` so all three Laravel paths point to the application directory outside the web root:
 
-Thank you for considering contributing to the Laravel framework! The contribution guide can be found in the [Laravel documentation](https://laravel.com/docs/contributions).
+```php
+if (file_exists($maintenance = __DIR__.'/../kanisa/storage/framework/maintenance.php')) {
+    require $maintenance;
+}
+require __DIR__.'/../kanisa/vendor/autoload.php';
+$app = require_once __DIR__.'/../kanisa/bootstrap/app.php';
+```
 
-## Code of Conduct
+These example paths assume `kanisa` and `public_html` are sibling directories. Adjust them if your hosting account uses a different location. Keep the copied `.htaccess` file, and do not overwrite the customized `index.php` during updates.
 
-In order to ensure that the Laravel community is welcoming to all, please review and abide by the [Code of Conduct](https://laravel.com/docs/contributions#code-of-conduct).
+In this `public_html` arrangement, also point `public_html/storage` to the application's `storage/app/public` directory. For example, if symbolic links are allowed:
 
-## Security Vulnerabilities
+```sh
+ln -s ../kanisa/storage/app/public /home/CPANEL_USER/public_html/storage
+```
 
-If you discover a security vulnerability within Laravel, please send an e-mail to Taylor Otwell via [taylor@laravel.com](mailto:taylor@laravel.com). All security vulnerabilities will be promptly addressed.
+If the host blocks symbolic links, ask the provider for a supported public-storage setup before enabling file uploads.
 
-## License
+### 2. Configure production environment
 
-The Laravel framework is open-sourced software licensed under the [MIT license](https://opensource.org/licenses/MIT).
+Copy `.env.example` to `.env` in the private application directory. Set real values in the server's `.env`; never commit or upload a local development `.env`.
+
+At minimum, configure:
+
+```dotenv
+APP_NAME="KKKT CMS"
+APP_ENV=production
+APP_DEBUG=false
+APP_URL=https://your-domain.example
+
+DB_CONNECTION=mysql
+DB_HOST=localhost
+DB_PORT=3306
+DB_DATABASE=your_database
+DB_USERNAME=your_database_user
+DB_PASSWORD=your_database_password
+
+SESSION_DRIVER=database
+SESSION_SECURE_COOKIE=true
+CACHE_STORE=database
+QUEUE_CONNECTION=database
+FILESYSTEM_DISK=local
+```
+
+Use the database host and credentials supplied by your provider. Configure SMTP settings if the application will send email. Keep `APP_DEBUG=false` and serve the site only over HTTPS.
+
+For the first installation only, also set `INITIAL_ADMIN_NAME`, `INITIAL_ADMIN_EMAIL`, and a unique `INITIAL_ADMIN_PASSWORD` of at least 12 characters. These values are required by the production-safe seeders; the application no longer creates a default administrator account.
+
+### 3. Install dependencies and initialize the database
+
+From the repository directory, run:
+
+```sh
+composer install --no-dev --prefer-dist --optimize-autoloader --no-interaction
+php artisan key:generate
+php artisan migrate --force
+php artisan db:seed --force
+```
+
+`db:seed` creates the initial administrator, roles, permissions, and default system settings. Change the administrator password after the first login. Once seeding succeeds, remove the three `INITIAL_ADMIN_*` values from `.env` so the initial password is not kept on the server, then cache production configuration:
+
+```sh
+php artisan optimize:clear
+php artisan optimize
+```
+
+For the recommended document root (`kanisa/public`), run `php artisan storage:link` so public uploads can be served.
+
+Back up the production database before running migrations during an update. For subsequent releases, update the code, run `composer install --no-dev --prefer-dist --optimize-autoloader --no-interaction`, run `php artisan migrate --force`, and refresh the caches. Do not run `key:generate` again on an existing installation; changing `APP_KEY` can make encrypted data unreadable. Do not rerun the initial seeders during routine updates.
+
+The PHP process must be able to write to `storage` and `bootstrap/cache`. Set ownership and permissions according to your hosting provider; do not make the entire project world-writable.
+
+### 4. Process queued SMS
+
+Finance SMS notifications use the database queue. Configure a cron job to process queued jobs once per minute. Replace the PHP binary and project paths with the values from your host:
+
+```cron
+* * * * * cd /home/CPANEL_USER/kanisa && /usr/local/bin/php artisan queue:work database --stop-when-empty --max-time=50 --tries=3 >> /dev/null 2>&1
+```
+
+Without a working queue worker, queued SMS messages will remain pending. Only enable live SwalaSMS after saving the API key and sender ID and testing the connection from **System Settings**.
+
+### 5. Updating frontend assets
+
+The compiled assets are checked in so deployments do not depend on Node.js being installed on shared hosting. When frontend source changes, build and commit the updated assets from a development machine:
+
+```sh
+npm ci
+npm run build
+git add public/build
+```
+
+### 6. Verify the deployment
+
+- Visit `/up` and confirm the application health endpoint responds.
+- Sign in with the initial administrator and change the password.
+- Confirm HTTPS, member pages, file uploads, and database writes work.
+- Check Laravel logs in `storage/logs` and the hosting provider's PHP error log.
+- Confirm the scheduled queue command runs before enabling live SMS.
+
+## Local development
+
+Install dependencies, create `.env` from `.env.example`, generate an application key, configure a local database, then run migrations and the development server:
+
+```sh
+composer install
+cp .env.example .env
+php artisan key:generate
+php artisan migrate
+npm install
+npm run dev
+```
+
+For a fresh local database, set `INITIAL_ADMIN_NAME`, `INITIAL_ADMIN_EMAIL`, and `INITIAL_ADMIN_PASSWORD` in `.env`, then run `php artisan db:seed` to create the first administrator and system roles.
+
+Run the test suite with:
+
+```sh
+php artisan test
+```

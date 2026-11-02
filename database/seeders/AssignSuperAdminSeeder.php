@@ -4,7 +4,7 @@ namespace Database\Seeders;
 
 use App\Models\User;
 use Illuminate\Database\Seeder;
-use Spatie\Permission\Models\Role;
+use RuntimeException;
 use Spatie\Permission\PermissionRegistrar;
 
 class AssignSuperAdminSeeder extends Seeder
@@ -13,19 +13,16 @@ class AssignSuperAdminSeeder extends Seeder
     {
         app()[PermissionRegistrar::class]->forgetCachedPermissions();
 
-        $admin = User::where('email', 'admin@kkktcms.local')->first();
+        $email = config('services.initial_admin.email');
+        $admin = is_string($email) ? User::query()->where('email', $email)->first() : null;
 
         if (! $admin) {
-            $this->command->error('Admin account haijapatikana.');
-
-            return;
+            throw new RuntimeException('Run AdminUserSeeder with valid initial administrator credentials first.');
         }
 
-        $role = Role::findByName('Super Admin', 'web');
+        $admin->syncRoles(['Super Admin']);
 
-        $admin->syncRoles([$role]);
-
-        $this->command->info(
+        $this->command?->info(
             'Super Admin amepewa mamlaka yote kikamilifu.'
         );
     }

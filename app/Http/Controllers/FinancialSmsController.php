@@ -6,13 +6,17 @@ use App\Http\Requests\SendTestSmsRequest;
 use App\Jobs\SendFinancialSms;
 use App\Models\FinancialSetting;
 use App\Models\FinancialSmsLog;
-use App\Services\BeemSmsGateway;
 use App\Services\FinancialSmsMessageBuilder;
+use App\Services\SmsSettings;
+use App\Services\SwalaSmsException;
+use App\Services\SwalaSmsService;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Validation\ValidationException;
 use Illuminate\View\View;
 use RuntimeException;
@@ -24,11 +28,11 @@ class FinancialSmsController extends Controller
     {
         $validated = $request->validate([
             'search' => ['nullable', 'string', 'max:100'],
-            'type' => ['nullable', 'in:financial_receipt,test_sms'],
-            'status' => ['nullable', 'in:queued,sending,accepted,test_only,not_configured,no_phone,failed'],
-            'delivery_status' => ['nullable', 'in:PENDING,DELIVERED,UNDELIVERED'],
+            'type' => ['nullable', 'in:financial_receipt,sunday_offering,test_sms,bulk_campaign'],
+            'status' => ['nullable', 'in:queued,sending,accepted,test_only,not_configured,no_phone,failed,cancelled'],
             'from' => ['nullable', 'date_format:Y-m-d'],
             'to' => ['nullable', 'date_format:Y-m-d', 'after_or_equal:from'],
+            'delivery_status' => ['nullable', 'in:queued,processing,sent,delivered,failed,scheduled'],
         ]);
 
         $query = FinancialSmsLog::query()
@@ -46,29 +50,62 @@ class FinancialSmsController extends Controller
                         });
                 });
             })
+            ->when($validated['delivery_status'] ?? null, fn (Builder $query, string $status) => $query->where('delivery_status', $status))
             ->when($validated['type'] ?? null, fn (Builder $query, string $type) => $query->where('notification_type', $type))
             ->when($validated['status'] ?? null, fn (Builder $query, string $status) => $query->where('status', $status))
-            ->when($validated['delivery_status'] ?? null, fn (Builder $query, string $status) => $query->where('delivery_status', $status))
             ->when($validated['from'] ?? null, fn (Builder $query, string $date) => $query->whereDate('created_at', '>=', $date))
             ->when($validated['to'] ?? null, fn (Builder $query, string $date) => $query->whereDate('created_at', '<=', $date));
 
         return view('finance.sms.index', [
             'logs' => $query->orderByDesc('id')->paginate(25)->withQueryString(),
+            'totalMessages' => FinancialSmsLog::query()->count(),
+            'pendingCount' => FinancialSmsLog::query()
+                ->where(function (Builder $query): void {
+                    $query->whereIn('status', ['queued', 'sending'])
+                        ->orWhere(function (Builder $query): void {
+                            $query->where('provider', 'swalasms')
+                                ->where('status', 'accepted')
+                                ->whereIn('delivery_status', ['queued', 'processing', 'sent', 'scheduled']);
+                        });
+                })
+                ->count(),
+            'statusCounts' => FinancialSmsLog::query()->selectRaw('status, count(*) as total')->groupBy('status')->pluck('total', 'status'),
+            'deliveryCounts' => FinancialSmsLog::query()->whereNotNull('delivery_status')->selectRaw('delivery_status, count(*) as total')->groupBy('delivery_status')->pluck('total', 'delivery_status'),
+            'failedCount' => FinancialSmsLog::query()
+                ->where(fn (Builder $query) => $query->where('status', 'failed')->orWhere('delivery_status', 'failed'))
+                ->count(),
+            'failedJobCount' => Schema::hasTable('failed_jobs')
+                ? DB::table('failed_jobs')
+                    ->where(fn ($failed) => $failed->where('payload', 'like', '%SendFinancialSms%')
+                        ->orWhere('payload', 'like', '%SendBulkSmsBatch%')
+                        ->orWhere('payload', 'like', '%PrepareBulkSmsCampaign%'))
+                    ->count()
+                : 0,
+            'lastCheckStatus' => FinancialSetting::getValue('swala_last_check_status'),
+            'senderId' => SmsSettings::senderId(),
+            'lastBalance' => SmsSettings::apiKey() !== '' ? FinancialSetting::getValue('swala_last_balance') : null,
         ]);
     }
 
     public function retry(FinancialSmsLog $smsLog): RedirectResponse
     {
-        if (FinancialSetting::getValue('beem_enabled', '0') !== '1') {
+        abort_unless(in_array($smsLog->notification_type, ['financial_receipt', 'sunday_offering'], true), 403);
+
+        if ($smsLog->notification_type === 'sunday_offering'
+            && ($smsLog->member === null || ! $smsLog->member->sms_opt_in)) {
+            return back()->withErrors([
+                'sms' => __('finance.sms_sunday_consent_required'),
+            ]);
+        }
+
+        if (! SmsSettings::enabled()) {
             return back()->withErrors([
                 'sms' => __('finance.test_sms_requires_enabled'),
             ]);
         }
 
-        $testMode = FinancialSetting::getValue('beem_test_mode', '1') === '1';
-        $credentialsConfigured = trim((string) FinancialSetting::getValue('beem_api_key')) !== ''
-            && trim((string) FinancialSetting::getValue('beem_api_secret')) !== ''
-            && trim((string) FinancialSetting::getValue('beem_sender_id')) !== '';
+        $testMode = SmsSettings::testMode();
+        $credentialsConfigured = SmsSettings::hasCredentials();
 
         if (! $testMode && ! $credentialsConfigured) {
             return back()->withErrors([
@@ -78,12 +115,25 @@ class FinancialSmsController extends Controller
 
         $smsLog = DB::transaction(function () use ($smsLog, $testMode): FinancialSmsLog {
             $lockedLog = FinancialSmsLog::query()->lockForUpdate()->findOrFail($smsLog->id);
-            abort_unless(in_array($lockedLog->status, ['failed', 'not_configured'], true), 409);
+            abort_unless(
+                in_array($lockedLog->status, ['failed', 'not_configured'], true)
+                    || ($lockedLog->status === 'accepted' && $lockedLog->delivery_status === 'failed'),
+                409,
+            );
 
             $lockedLog->forceFill([
                 'status' => 'queued',
                 'is_test' => $testMode,
                 'error_message' => null,
+                'provider_error_code' => null,
+                'provider_status' => null,
+                'delivery_status' => null,
+                'delivered_at' => null,
+                'provider_event_at' => null,
+                'provider_failure_reason' => null,
+                'idempotency_key' => $lockedLog->provider_acceptance_state === SwalaSmsException::UNKNOWN
+                    ? $lockedLog->idempotency_key
+                    : null,
             ])->save();
 
             return $lockedLog;
@@ -105,38 +155,43 @@ class FinancialSmsController extends Controller
             : __('finance.sms_retry_queued'));
     }
 
-    public function balance(BeemSmsGateway $gateway): RedirectResponse
+    public function refreshStatus(FinancialSmsLog $smsLog, SwalaSmsService $swala): RedirectResponse
     {
+        abort_unless($smsLog->provider === 'swalasms' && filled($smsLog->provider_message_id), 404);
+
         try {
-            $balance = $gateway->balance();
-        } catch (RuntimeException) {
-            return back()->withErrors([
-                'sms' => __('finance.sms_balance_failed'),
-            ]);
+            $result = $swala->messageStatus($smsLog->provider_message_id);
+        } catch (SwalaSmsException) {
+            return back()->withErrors(['sms' => __('finance.delivery_status_failed')]);
         }
 
-        FinancialSetting::setValue('beem_last_balance', (string) $balance['credit_balance']);
-        FinancialSetting::setValue('beem_last_balance_checked_at', now()->toDateTimeString());
+        DB::transaction(function () use ($smsLog, $result): void {
+            $locked = FinancialSmsLog::query()->lockForUpdate()->findOrFail($smsLog->id);
+            $locked->applyProviderStatus(
+                $result['status'],
+                null,
+                $result['failure_reason'],
+                $result['delivered_at'] === null ? null : Carbon::parse($result['delivered_at']),
+            );
+            $locked->forceFill(['delivery_checked_at' => now()])->save();
+        });
 
-        return back()->with('sms_balance', $balance['credit_balance']);
+        return back()->with('success', __('finance.delivery_status_updated', [
+            'status' => __('finance.delivery_statuses.'.$result['status']),
+        ]));
     }
 
     public function sendTest(
         SendTestSmsRequest $request,
         FinancialSmsMessageBuilder $messages,
-        BeemSmsGateway $gateway,
+        SwalaSmsService $gateway,
     ): RedirectResponse {
-        if (FinancialSetting::getValue('beem_enabled', '0') !== '1') {
+        if (! SmsSettings::enabled()) {
             return redirect()->to(route('settings.edit').'#sms-notifications')
                 ->withErrors(['sms' => __('finance.test_sms_requires_enabled')]);
         }
 
-        $testMode = FinancialSetting::getValue('beem_test_mode', '1') === '1';
-        $credentialsConfigured = trim((string) FinancialSetting::getValue('beem_api_key')) !== ''
-            && trim((string) FinancialSetting::getValue('beem_api_secret')) !== ''
-            && trim((string) FinancialSetting::getValue('beem_sender_id')) !== '';
-
-        if (! $testMode && ! $credentialsConfigured) {
+        if (! SmsSettings::hasCredentials()) {
             return redirect()->to(route('settings.edit').'#sms-notifications')
                 ->withErrors(['sms' => __('finance.test_sms_live_credentials_required')]);
         }
@@ -155,14 +210,9 @@ class FinancialSmsController extends Controller
             'message' => $messages->preview($validated['type'], $validated['language']),
             'created_by' => Auth::id(),
             'phone' => $phone,
-            'status' => $testMode ? 'test_only' : 'queued',
-            'is_test' => $testMode,
+            'status' => 'queued',
+            'is_test' => true,
         ]);
-
-        if ($testMode) {
-            return redirect()->to(route('settings.edit').'#sms-notifications')
-                ->with('success', __('finance.test_sms_recorded'));
-        }
 
         try {
             SendFinancialSms::dispatch($log->id);
@@ -178,33 +228,5 @@ class FinancialSmsController extends Controller
 
         return redirect()->to(route('settings.edit').'#sms-notifications')
             ->with('success', __('finance.test_sms_queued'));
-    }
-
-    public function checkDelivery(FinancialSmsLog $smsLog, BeemSmsGateway $gateway): RedirectResponse
-    {
-        abort_unless($smsLog->status === 'accepted' && ! $smsLog->is_test, 409);
-
-        if ($smsLog->accepted_at === null || $smsLog->accepted_at->gt(now()->subMinutes(5))) {
-            return back()->withErrors(['sms' => __('finance.delivery_report_too_early')]);
-        }
-
-        try {
-            $status = $gateway->deliveryReport($smsLog);
-        } catch (RuntimeException) {
-            return back()->withErrors(['sms' => __('finance.delivery_status_failed')]);
-        }
-
-        if ($status === null) {
-            return back()->withErrors(['sms' => __('finance.delivery_status_unavailable')]);
-        }
-
-        $smsLog->forceFill([
-            'delivery_status' => $status,
-            'delivery_checked_at' => now(),
-        ])->save();
-
-        return back()->with('success', __('finance.delivery_status_updated', [
-            'status' => __('finance.delivery_statuses.'.$status),
-        ]));
     }
 }

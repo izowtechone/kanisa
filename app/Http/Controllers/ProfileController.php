@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Http\Requests\ProfileUpdateRequest;
+use App\Models\User;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -47,6 +48,20 @@ class ProfileController extends Controller
         ]);
 
         $user = $request->user();
+
+        if ($user->status === 'active' && $user->hasRole(User::SUPER_ADMIN_ROLE)) {
+            $activeSuperAdmins = User::query()
+                ->where('status', 'active')
+                ->whereHas('roles', fn ($query) => $query->where('name', User::SUPER_ADMIN_ROLE))
+                ->count();
+
+            if ($activeSuperAdmins <= 1) {
+                return Redirect::route('profile.edit')->withErrors(
+                    ['password' => __('users.last_active_super_admin')],
+                    'userDeletion',
+                );
+            }
+        }
 
         Auth::logout();
 

@@ -1,39 +1,28 @@
 <x-guest-layout>
-    <form method="POST" action="{{ route('password.store') }}">
+    <div class="mb-8">
+        <h1 class="text-3xl font-bold tracking-tight text-white">{{ __('auth_pages.reset_title') }}</h1>
+        <p class="mt-2 text-slate-400">{{ __('auth_pages.reset_description') }}</p>
+    </div>
+
+    <form method="POST" action="{{ route('password.store') }}" x-data="{ loading: false }" @submit="if (loading) { $event.preventDefault() } else { loading = true }" class="space-y-5">
         @csrf
 
-        <!-- Password Reset Token -->
         <input type="hidden" name="token" value="{{ $request->route('token') }}">
 
-        <!-- Email Address -->
         <div>
-            <x-input-label for="email" :value="__('Email')" />
-            <x-text-input id="email" class="block mt-1 w-full" type="email" name="email" :value="old('email', $request->email)" required autofocus autocomplete="username" />
-            <x-input-error :messages="$errors->get('email')" class="mt-2" />
+            <label for="email" class="field-label">{{ __('auth_pages.email') }}<span class="text-red-400" aria-hidden="true"> *</span></label>
+            <input id="email" name="email" type="email" value="{{ old('email', $request->email) }}" class="field-input" required autofocus autocomplete="username">
+            @error('email')
+                <p class="field-error" role="alert">{{ $message }}</p>
+            @enderror
         </div>
 
-        <!-- Password -->
-        <div class="mt-4">
-            <x-input-label for="password" :value="__('Password')" />
-            <x-text-input id="password" class="block mt-1 w-full" type="password" name="password" required autocomplete="new-password" />
-            <x-input-error :messages="$errors->get('password')" class="mt-2" />
-        </div>
+        <x-password-field id="password" name="password" :label="__('auth_pages.new_password')" autocomplete="new-password" :hint="__('auth_pages.password_rules')"/>
+        <x-password-field id="password_confirmation" name="password_confirmation" :label="__('auth_pages.confirm_password')" autocomplete="new-password"/>
 
-        <!-- Confirm Password -->
-        <div class="mt-4">
-            <x-input-label for="password_confirmation" :value="__('Confirm Password')" />
-
-            <x-text-input id="password_confirmation" class="block mt-1 w-full"
-                                type="password"
-                                name="password_confirmation" required autocomplete="new-password" />
-
-            <x-input-error :messages="$errors->get('password_confirmation')" class="mt-2" />
-        </div>
-
-        <div class="flex items-center justify-end mt-4">
-            <x-primary-button>
-                {{ __('Reset Password') }}
-            </x-primary-button>
-        </div>
+        <button type="submit" class="btn-primary w-full py-3" :disabled="loading">
+            <span x-show="! loading">{{ __('auth_pages.reset_password') }}</span>
+            <span x-show="loading" x-cloak>{{ __('auth_pages.saving') }}</span>
+        </button>
     </form>
 </x-guest-layout>

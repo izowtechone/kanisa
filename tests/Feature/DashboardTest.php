@@ -1,5 +1,7 @@
 <?php
 
+use App\Models\Community;
+use App\Models\FinancialTransaction;
 use App\Models\Member;
 use App\Models\Setting;
 use App\Models\User;
@@ -158,6 +160,84 @@ test('dashboard navigation hides member and settings links from unauthorized use
         ->assertDontSee(route('members.index'), false)
         ->assertDontSee(route('settings.edit'), false)
         ->assertDontSee(__('dashboard.settings'));
+});
+
+test('community permission shows community aggregates without exposing member records', function () {
+    Setting::setValue('system_language', 'en');
+    Community::factory()->create([
+        'code' => 'JUM-DASH-001',
+        'name' => 'Kisasa Jumuiya',
+    ]);
+    makeDashboardTestMember([
+        'membership_number' => 'KKKT-PRIVATE-DASH-0001',
+        'envelope_number' => 'PRIVATE-DASH-ENV',
+        'first_name' => 'Private',
+        'last_name' => 'Member',
+    ]);
+    $user = User::factory()->create();
+    $user->givePermissionTo(Permission::findOrCreate('view communities', 'web'));
+
+    $this->actingAs($user)
+        ->get(route('dashboard'))
+        ->assertOk()
+        ->assertSee('Active Jumuiya communities')
+        ->assertDontSee('KKKT-PRIVATE-DASH-0001')
+        ->assertDontSee('PRIVATE-DASH-ENV')
+        ->assertViewHas('memberStatistics', fn ($statistics): bool => $statistics === null)
+        ->assertViewHas('communityStatistics', function (array $statistics): bool {
+            return $statistics['active_communities'] === 1
+                && $statistics['unassigned_active_members'] === 1;
+        });
+});
+
+test('Sunday Offering permission shows only its monthly aggregate and currency', function () {
+    Setting::setValue('system_language', 'en');
+    Setting::setValue('currency', 'TZS');
+    $user = User::factory()->create();
+    $user->givePermissionTo(Permission::findOrCreate('view Sunday offerings', 'web'));
+
+    FinancialTransaction::query()->create([
+        'transaction_number' => 'KKKT-DASH-TXN-0001',
+        'receipt_number' => 'KKKT-DASH-RCPT-0001',
+        'source' => FinancialTransaction::SOURCE_SUNDAY_OFFERING,
+        'idempotency_key' => 'dashboard-offering-approved',
+        'payload_hash' => hash('sha256', 'approved'),
+        'type' => 'offering',
+        'member_name' => 'Private Sunday Member',
+        'amount' => '125.00',
+        'currency' => 'TZS',
+        'payment_method' => 'cash',
+        'status' => 'approved',
+        'transaction_date' => now()->startOfMonth()->toDateString(),
+    ]);
+    FinancialTransaction::query()->create([
+        'transaction_number' => 'KKKT-DASH-TXN-0002',
+        'receipt_number' => 'KKKT-DASH-RCPT-0002',
+        'source' => FinancialTransaction::SOURCE_SUNDAY_OFFERING,
+        'idempotency_key' => 'dashboard-offering-pending',
+        'payload_hash' => hash('sha256', 'pending'),
+        'type' => 'offering',
+        'member_name' => 'Private Pending Member',
+        'amount' => '50.00',
+        'currency' => 'TZS',
+        'payment_method' => 'cash',
+        'status' => 'pending',
+        'transaction_date' => now()->startOfMonth()->toDateString(),
+    ]);
+
+    $this->actingAs($user)
+        ->get(route('dashboard'))
+        ->assertOk()
+        ->assertSee('Approved Sunday offerings')
+        ->assertSee('TZS 125.00')
+        ->assertDontSee('Private Sunday Member')
+        ->assertDontSee('KKKT-DASH-TXN-0001')
+        ->assertViewHas('memberStatistics', fn ($statistics): bool => $statistics === null)
+        ->assertViewHas('sundayOfferingStatistics', function ($statistics): bool {
+            return (int) $statistics->approved_count === 1
+                && (int) $statistics->pending_count === 1
+                && (float) $statistics->approved_amount === 125.0;
+        });
 });
 
 test('sidebar highlights settings for users with settings permission', function () {

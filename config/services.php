@@ -35,4 +35,21 @@ return [
         ],
     ],
 
+    'initial_admin' => [
+        'name' => env('INITIAL_ADMIN_NAME'),
+        'email' => env('INITIAL_ADMIN_EMAIL'),
+        'password' => env('INITIAL_ADMIN_PASSWORD'),
+    ],
+
+    'swalasms' => [
+        'base_url' => env('SWALASMS_BASE_URL', 'https://api.swalasms.com'),
+        'requests_per_minute' => (int) env('SWALASMS_REQUESTS_PER_MINUTE', 30),
+        'bulk_batch_size' => max(1, min(1000, (int) env('SWALASMS_BULK_BATCH_SIZE', 500))),
+    ],
+
+    // Legacy Beem setting retained only so existing deployments keep their .env value; nothing reads it.
+    'beem' => [
+        'requests_per_minute' => env('BEEM_SMS_REQUESTS_PER_MINUTE', 30),
+    ],
+
 ];

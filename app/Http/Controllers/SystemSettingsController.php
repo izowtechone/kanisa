@@ -6,6 +6,7 @@ use App\Http\Requests\SaveChurchSettingsRequest;
 use App\Models\FinancialSetting;
 use App\Models\Setting;
 use App\Services\FinancialSmsMessageBuilder;
+use App\Services\SmsSettings;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Storage;
@@ -24,6 +25,7 @@ class SystemSettingsController extends Controller
 
         $data = [
             'churchShortName' => Setting::getValue('church_short_name', ''),
+            'communityCodePrefix' => Setting::getValue('community_code_prefix', 'JUM'),
             'systemLanguage' => Setting::getValue('system_language', config('app.locale')),
             'churchLogo' => Setting::getValue('church_logo', ''),
             'canManageChurchSettings' => $user->can('manage settings'),
@@ -32,54 +34,53 @@ class SystemSettingsController extends Controller
         ];
 
         if ($data['canManageSmsSettings']) {
-            $language = FinancialSetting::getValue(
-                'beem_language',
+            $language = SmsSettings::shared(
+                'language',
                 (string) Setting::getValue('system_language', config('app.locale', 'sw')),
             );
+            $templates = [];
+
+            foreach (['offering', 'contribution', 'sunday_offering'] as $type) {
+                foreach (['en', 'sw'] as $locale) {
+                    $templates[$type.'_'.$locale] = SmsSettings::shared(
+                        'template_'.$type.'_'.$locale,
+                        __('finance.sms_template_'.$type, [], $locale),
+                    );
+                }
+            }
+
             $data['smsSettings'] = [
-                'enabled' => FinancialSetting::getValue('beem_enabled', '0') === '1',
-                'testMode' => FinancialSetting::getValue('beem_test_mode', '1') === '1',
-                'senderId' => FinancialSetting::getValue('beem_sender_id', ''),
+                'enabled' => SmsSettings::enabled(),
+                'testMode' => SmsSettings::testMode(),
+                'senderId' => SmsSettings::senderId(),
                 'language' => $language,
-                'autoOffering' => FinancialSetting::getValue('beem_auto_offering', '1') === '1',
-                'autoContribution' => FinancialSetting::getValue('beem_auto_contribution', '1') === '1',
-                'autoOtherIncome' => FinancialSetting::getValue('beem_auto_other_income', '0') === '1',
-                'lowCreditThreshold' => FinancialSetting::getValue('beem_low_credit_threshold', ''),
-                'lastBalance' => FinancialSetting::getValue('beem_last_balance'),
-                'lastBalanceCheckedAt' => FinancialSetting::getValue('beem_last_balance_checked_at'),
-                'credentialsConfigured' => trim((string) FinancialSetting::getValue('beem_api_key')) !== ''
-                    && trim((string) FinancialSetting::getValue('beem_api_secret')) !== '',
-                'templates' => [
-                    'offering_en' => FinancialSetting::getValue(
-                        'beem_template_offering_en',
-                        __('finance.sms_template_offering', [], 'en'),
-                    ),
-                    'offering_sw' => FinancialSetting::getValue(
-                        'beem_template_offering_sw',
-                        __('finance.sms_template_offering', [], 'sw'),
-                    ),
-                    'contribution_en' => FinancialSetting::getValue(
-                        'beem_template_contribution_en',
-                        __('finance.sms_template_contribution', [], 'en'),
-                    ),
-                    'contribution_sw' => FinancialSetting::getValue(
-                        'beem_template_contribution_sw',
-                        __('finance.sms_template_contribution', [], 'sw'),
-                    ),
-                ],
+                'autoOffering' => SmsSettings::shared('auto_offering', '1') === '1',
+                'autoContribution' => SmsSettings::shared('auto_contribution', '1') === '1',
+                'autoOtherIncome' => SmsSettings::shared('auto_other_income', '0') === '1',
+                'credentialsConfigured' => SmsSettings::apiKey() !== '',
+                'keyEnvironment' => SmsSettings::keyEnvironment(),
+                'webhookSecretConfigured' => SmsSettings::webhookSecret() !== '',
+                'webhookUrl' => route('webhooks.swalasms'),
+                'lastCheckAt' => FinancialSetting::getValue('swala_last_check_at'),
+                'lastCheckStatus' => FinancialSetting::getValue('swala_last_check_status'),
+                'lastCheckMessage' => FinancialSetting::getValue('swala_last_check_message'),
+                'lastBalance' => FinancialSetting::getValue('swala_last_balance'),
+                'lastSuccessAt' => FinancialSetting::getValue('swala_last_success_at'),
+                'templates' => $templates,
             ];
         }
-
         if ($data['canManageSmsSettings'] && $data['canSendTestSms']) {
             $messageBuilder = app(FinancialSmsMessageBuilder::class);
             $data['smsTemplatePreviews'] = [
                 'en' => [
                     'offering' => $messageBuilder->preview('offering', 'en'),
                     'contribution' => $messageBuilder->preview('contribution', 'en'),
+                    'sunday_offering' => $messageBuilder->previewSundayOffering('en'),
                 ],
                 'sw' => [
                     'offering' => $messageBuilder->preview('offering', 'sw'),
                     'contribution' => $messageBuilder->preview('contribution', 'sw'),
+                    'sunday_offering' => $messageBuilder->previewSundayOffering('sw'),
                 ],
             ];
         }
@@ -110,6 +111,13 @@ class SystemSettingsController extends Controller
             strtoupper(trim($validated['church_short_name'])),
             'general',
         );
+        if (isset($validated['community_code_prefix']) && trim($validated['community_code_prefix']) !== '') {
+            Setting::setValue(
+                'community_code_prefix',
+                strtoupper(trim($validated['community_code_prefix'])),
+                'general',
+            );
+        }
         Setting::setValue('system_language', $validated['system_language'], 'general');
         Setting::setValue('church_logo', $newLogo, 'general');
 

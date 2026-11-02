@@ -1,6 +1,7 @@
 
 <?php
 
+use App\Http\Controllers\CommunityController;
 use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\DepartmentController;
 use App\Http\Controllers\FinanceController;
@@ -8,23 +9,35 @@ use App\Http\Controllers\FinancialCampaignController;
 use App\Http\Controllers\FinancialImportController;
 use App\Http\Controllers\FinancialReceiptController;
 use App\Http\Controllers\FinancialSettingsController;
+use App\Http\Controllers\FinancialSmsCampaignController;
 use App\Http\Controllers\FinancialSmsController;
 use App\Http\Controllers\FinancialTransactionController;
 use App\Http\Controllers\GroupController;
+use App\Http\Controllers\LanguageController;
 use App\Http\Controllers\MemberController;
 use App\Http\Controllers\MemberImportController;
 use App\Http\Controllers\MemberLifecycleController;
 use App\Http\Controllers\ProfileController;
+use App\Http\Controllers\SundayOfferingController;
+use App\Http\Controllers\SwalaSmsWebhookController;
 use App\Http\Controllers\SystemSettingsController;
+use App\Http\Controllers\UserManagementController;
+use App\Http\Middleware\EnsureUserIsActive;
 use Illuminate\Support\Facades\Route;
 
 // Wageni wanaelekezwa kwenye ukurasa wa kuingia
-Route::get('/', function () {
-    return redirect()->route('login');
-});
+Route::redirect('/', '/login');
+
+Route::get('/language/{locale}', [LanguageController::class, 'update'])
+    ->whereIn('locale', ['sw', 'en'])
+    ->name('language.switch');
 
 // Kurasa za mfumo zinalindwa kwa uthibitisho wa kuingia
-Route::middleware(['auth', 'verified'])->group(function () {
+Route::post('/webhooks/swalasms', SwalaSmsWebhookController::class)
+    ->middleware('throttle:swalasms-webhook')
+    ->name('webhooks.swalasms');
+
+Route::middleware(['auth', 'verified', EnsureUserIsActive::class])->group(function () {
 
     Route::get('/dashboard', [DashboardController::class, 'index'])
         ->name('dashboard');
@@ -72,6 +85,45 @@ Route::middleware(['auth', 'verified'])->group(function () {
     Route::put('/members/{member}', [MemberController::class, 'update'])
         ->middleware('can:edit members')
         ->name('members.update');
+
+    Route::get('/communities/leaders/search', [CommunityController::class, 'searchLeaders'])
+        ->name('communities.leaders.search');
+
+    Route::get('/communities/lookup', [CommunityController::class, 'lookup'])
+        ->middleware('can:assign members to communities')
+        ->name('communities.lookup');
+
+    Route::get('/communities', [CommunityController::class, 'index'])
+        ->middleware('can:view communities')
+        ->name('communities.index');
+
+    Route::get('/communities/create', [CommunityController::class, 'create'])
+        ->middleware('can:create communities')
+        ->name('communities.create');
+
+    Route::post('/communities', [CommunityController::class, 'store'])
+        ->middleware('can:create communities')
+        ->name('communities.store');
+
+    Route::get('/communities/{community}/edit', [CommunityController::class, 'edit'])
+        ->middleware('can:edit communities')
+        ->name('communities.edit');
+
+    Route::patch('/communities/{community}/status', [CommunityController::class, 'toggle'])
+        ->middleware('can:edit communities')
+        ->name('communities.status');
+
+    Route::delete('/communities/{community}', [CommunityController::class, 'destroy'])
+        ->middleware('can:delete communities')
+        ->name('communities.destroy');
+
+    Route::get('/communities/{community}', [CommunityController::class, 'show'])
+        ->middleware('can:view communities')
+        ->name('communities.show');
+
+    Route::put('/communities/{community}', [CommunityController::class, 'update'])
+        ->middleware('can:edit communities')
+        ->name('communities.update');
 
     Route::get('/members/bulk-upload', [MemberImportController::class, 'create'])
         ->middleware('can:import members')
@@ -165,6 +217,26 @@ Route::middleware(['auth', 'verified'])->group(function () {
     Route::get('/finance', [FinanceController::class, 'index'])
         ->middleware('can:view finances')
         ->name('finance.index');
+
+    Route::get('/finance/sunday-offerings', [SundayOfferingController::class, 'index'])
+        ->middleware('can:view Sunday offerings')
+        ->name('finance.sunday-offerings.index');
+
+    Route::get('/finance/sunday-offerings/create', [SundayOfferingController::class, 'create'])
+        ->middleware('can:create Sunday offerings')
+        ->name('finance.sunday-offerings.create');
+
+    Route::get('/finance/sunday-offerings/members/search', [SundayOfferingController::class, 'searchMembers'])
+        ->middleware('can:create Sunday offerings')
+        ->name('finance.sunday-offerings.members.search');
+
+    Route::post('/finance/sunday-offerings', [SundayOfferingController::class, 'store'])
+        ->middleware('can:create Sunday offerings')
+        ->name('finance.sunday-offerings.store');
+
+    Route::get('/finance/sunday-offerings/{transaction}', [SundayOfferingController::class, 'show'])
+        ->middleware('can:view Sunday offerings')
+        ->name('finance.sunday-offerings.show');
 
     Route::get('/finance/campaigns', [FinancialCampaignController::class, 'index'])
         ->middleware('can:manage contributions')
@@ -339,21 +411,40 @@ Route::middleware(['auth', 'verified'])->group(function () {
         ->middleware('can:retry failed SMS')
         ->name('finance.sms.retry');
 
-    Route::post('/finance/sms/balance', [FinancialSmsController::class, 'balance'])
-        ->middleware('can:manage SMS settings')
-        ->name('finance.sms.balance');
+    Route::get('/finance/sms/campaigns', [FinancialSmsCampaignController::class, 'index'])
+        ->middleware('can:view SMS campaigns')
+        ->name('finance.sms.campaigns.index');
 
-    Route::post('/finance/sms/connection-test', [FinancialSettingsController::class, 'testSmsConnection'])
+    Route::get('/finance/sms/campaigns/create', [FinancialSmsCampaignController::class, 'create'])
+        ->middleware('can:send bulk SMS')
+        ->name('finance.sms.campaigns.create');
+
+    Route::post('/finance/sms/campaigns', [FinancialSmsCampaignController::class, 'store'])
+        ->middleware('can:send bulk SMS')
+        ->name('finance.sms.campaigns.store');
+
+    Route::post('/finance/sms/campaigns/{campaign}/retry-failed', [FinancialSmsCampaignController::class, 'retryFailed'])
+        ->middleware('can:retry failed SMS')
+        ->name('finance.sms.campaigns.retry-failed');
+
+    Route::post('/finance/sms/campaigns/{campaign}/cancel', [FinancialSmsCampaignController::class, 'cancel'])
+        ->middleware('can:cancel SMS campaigns')
+        ->name('finance.sms.campaigns.cancel');
+
+    Route::get('/finance/sms/campaigns/{campaign}', [FinancialSmsCampaignController::class, 'show'])
+        ->name('finance.sms.campaigns.show');
+
+    Route::post('/finance/sms/settings/test-connection', [FinancialSettingsController::class, 'testSmsConnection'])
         ->middleware('can:manage SMS settings')
-        ->name('finance.sms.connection-test');
+        ->name('finance.sms.settings.test-connection');
+
+    Route::post('/finance/sms/{smsLog}/refresh-status', [FinancialSmsController::class, 'refreshStatus'])
+        ->middleware('can:view SMS history')
+        ->name('finance.sms.refresh-status');
 
     Route::post('/finance/sms/test', [FinancialSmsController::class, 'sendTest'])
         ->middleware('can:send test SMS')
         ->name('finance.sms.test');
-
-    Route::post('/finance/sms/{smsLog}/delivery-report', [FinancialSmsController::class, 'checkDelivery'])
-        ->middleware('can:view SMS history')
-        ->name('finance.sms.delivery-report');
 
     Route::get('/settings', [SystemSettingsController::class, 'edit'])
         ->name('settings.edit');
@@ -361,6 +452,42 @@ Route::middleware(['auth', 'verified'])->group(function () {
     Route::put('/settings', [SystemSettingsController::class, 'update'])
         ->middleware('can:manage settings')
         ->name('settings.update');
+
+    Route::get('/users', [UserManagementController::class, 'index'])
+        ->middleware('can:view users')
+        ->name('users.index');
+
+    Route::get('/users/create', [UserManagementController::class, 'create'])
+        ->middleware('can:create users')
+        ->name('users.create');
+
+    Route::post('/users', [UserManagementController::class, 'store'])
+        ->middleware('can:create users')
+        ->name('users.store');
+
+    Route::get('/users/{managedUser}/edit', [UserManagementController::class, 'edit'])
+        ->middleware('can:edit users')
+        ->name('users.edit');
+
+    Route::put('/users/{managedUser}', [UserManagementController::class, 'update'])
+        ->middleware('can:edit users')
+        ->name('users.update');
+
+    Route::patch('/users/{managedUser}/status', [UserManagementController::class, 'updateStatus'])
+        ->middleware('can:deactivate users')
+        ->name('users.status');
+
+    Route::post('/users/{managedUser}/password-reset', [UserManagementController::class, 'sendPasswordReset'])
+        ->middleware(['can:edit users', 'throttle:6,1'])
+        ->name('users.password-reset');
+
+    Route::put('/users/{managedUser}/permissions', [UserManagementController::class, 'updatePermissions'])
+        ->middleware('can:manage permissions')
+        ->name('users.permissions.update');
+
+    Route::get('/users/{managedUser}', [UserManagementController::class, 'show'])
+        ->middleware('can:view users')
+        ->name('users.show');
 });
 
 Route::get('/receipts/verify/{receiptNumber}', [FinancialReceiptController::class, 'verify'])
@@ -368,7 +495,7 @@ Route::get('/receipts/verify/{receiptNumber}', [FinancialReceiptController::clas
     ->name('receipts.verify');
 
 // Kurasa za wasifu zinalindwa
-Route::middleware('auth')->group(function () {
+Route::middleware(['auth', EnsureUserIsActive::class])->group(function () {
 
     Route::get('/profile', [ProfileController::class, 'edit'])
         ->name('profile.edit');

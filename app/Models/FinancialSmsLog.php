@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use Carbon\CarbonInterface;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
@@ -11,10 +12,14 @@ class FinancialSmsLog extends Model
     protected $hidden = [
         'message',
         'phone',
+        'idempotency_key',
+        'provider_batch_key',
     ];
 
     protected $fillable = [
         'financial_transaction_id',
+        'bulk_sms_campaign_id',
+        'member_id',
         'notification_type',
         'message',
         'created_by',
@@ -23,10 +28,22 @@ class FinancialSmsLog extends Model
         'is_test',
         'provider_message_id',
         'attempts',
+        'sms_segments',
         'error_message',
         'accepted_at',
         'delivery_status',
         'delivery_checked_at',
+        'provider',
+        'idempotency_key',
+        'provider_batch_key',
+        'provider_campaign_uid',
+        'provider_status',
+        'provider_error_code',
+        'provider_acceptance_state',
+        'provider_units',
+        'provider_failure_reason',
+        'provider_event_at',
+        'delivered_at',
     ];
 
     protected function casts(): array
@@ -36,6 +53,8 @@ class FinancialSmsLog extends Model
             'accepted_at' => 'datetime',
             'message' => 'encrypted',
             'delivery_checked_at' => 'datetime',
+            'provider_event_at' => 'datetime',
+            'delivered_at' => 'datetime',
         ];
     }
 
@@ -44,10 +63,65 @@ class FinancialSmsLog extends Model
         return $this->belongsTo(FinancialTransaction::class, 'financial_transaction_id');
     }
 
+    public function campaign(): BelongsTo
+    {
+        return $this->belongsTo(BulkSmsCampaign::class, 'bulk_sms_campaign_id');
+    }
+
+    public function member(): BelongsTo
+    {
+        return $this->belongsTo(Member::class);
+    }
+
     public function smsAttempts(): HasMany
     {
         return $this->hasMany(FinancialSmsAttempt::class, 'financial_sms_log_id')
             ->orderBy('attempt_number');
+    }
+
+    public function isFinalDelivery(): bool
+    {
+        return in_array($this->delivery_status, ['delivered', 'failed'], true);
+    }
+
+    /**
+     * Applies a provider status idempotently: repeats and older events are ignored, and a
+     * non-final status never replaces a final one. Returns whether anything changed.
+     */
+    public function applyProviderStatus(
+        string $status,
+        ?CarbonInterface $eventAt = null,
+        ?string $failureReason = null,
+        ?CarbonInterface $deliveredAt = null,
+    ): bool {
+        $isFinal = in_array($status, ['delivered', 'failed'], true);
+        $timezone = config('app.timezone');
+        $eventAt = $eventAt?->copy()->setTimezone($timezone);
+        $deliveredAt = $deliveredAt?->copy()->setTimezone($timezone);
+
+        if ($this->isFinalDelivery()) {
+            $isNewer = $eventAt !== null
+                && ($this->provider_event_at === null || $eventAt->greaterThan($this->provider_event_at));
+
+            if (! $isFinal || $status === $this->delivery_status || ! $isNewer) {
+                return false;
+            }
+        } elseif ($eventAt !== null && $this->provider_event_at !== null && $eventAt->lessThan($this->provider_event_at)) {
+            return false;
+        } elseif ($status === $this->delivery_status && ! $isFinal) {
+            return false;
+        }
+
+        $this->forceFill([
+            'provider_status' => $status,
+            'delivery_status' => $status,
+            'delivery_checked_at' => now(),
+            'provider_event_at' => $eventAt ?? $this->provider_event_at,
+            'delivered_at' => $status === 'delivered' ? ($deliveredAt ?? $eventAt ?? now()) : null,
+            'provider_failure_reason' => $status === 'failed' ? mb_substr((string) $failureReason, 0, 255) : null,
+        ])->save();
+
+        return true;
     }
 
     public function maskedPhone(): string

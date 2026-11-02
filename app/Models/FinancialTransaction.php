@@ -9,6 +9,10 @@ use Illuminate\Database\Eloquent\Relations\HasOne;
 
 class FinancialTransaction extends Model
 {
+    public const SOURCE_FINANCE = 'finance';
+
+    public const SOURCE_SUNDAY_OFFERING = 'sunday_offering';
+
     public const TYPES = [
         'offering',
         'tithe',
@@ -27,6 +31,7 @@ class FinancialTransaction extends Model
     protected $fillable = [
         'transaction_number',
         'receipt_number',
+        'source',
         'idempotency_key',
         'payload_hash',
         'type',

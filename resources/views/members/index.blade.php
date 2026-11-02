@@ -131,7 +131,7 @@
                         <p class="mt-1 text-xs text-gray-500">{{ __('members.description') }}</p>
                     </div>
 
-                    <form method="GET" action="{{ route('members.index') }}" class="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                    <form method="GET" action="{{ route('members.index') }}" class="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
                         <label class="sr-only" for="member-search">{{ __('members.search') }}</label>
                         <input
                             id="member-search"
@@ -163,6 +163,20 @@
                             <option value="">{{ __('members.all_statuses') }}</option>
                             <option value="active" @selected($filters['status'] === 'active')>{{ __('members.active') }}</option>
                             <option value="inactive" @selected($filters['status'] === 'inactive')>{{ __('members.inactive') }}</option>
+                        </select>
+
+                        <label class="sr-only" for="member-community">{{ __('members.community') }}</label>
+                        <select
+                            id="member-community"
+                            name="community_id"
+                            class="rounded-lg border border-gray-700 bg-[#0b1120] px-4 py-3 text-sm text-white focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        >
+                            <option value="">{{ __('members.filter_community') }}</option>
+                            @foreach ($communities as $community)
+                                <option value="{{ $community->id }}" @selected((string) $filters['community_id'] === (string) $community->id)>
+                                    {{ $community->code }} · {{ $community->name }}
+                                </option>
+                            @endforeach
                         </select>
 
                         <button
@@ -201,6 +215,7 @@
                                 @endcan
                                 <th scope="col" class="px-5 py-4">{{ __('members.membership_number') }}</th>
                                 <th scope="col" class="px-5 py-4">{{ __('members.full_name') }}</th>
+                                <th scope="col" class="px-5 py-4">{{ __('members.community') }}</th>
                                 <th scope="col" class="px-5 py-4">{{ __('members.envelope_number') }}</th>
                                 <th scope="col" class="px-5 py-4">{{ __('members.gender') }}</th>
                                 <th scope="col" class="px-5 py-4">{{ __('members.phone') }}</th>
@@ -232,6 +247,7 @@
                                     <td class="whitespace-nowrap px-5 py-4 font-medium text-white">
                                         {{ collect([$member->first_name, $member->middle_name, $member->last_name])->filter()->implode(' ') }}
                                     </td>
+                                    <td class="px-5 py-4 text-gray-300">{{ $member->community?->name ?? '—' }}</td>
                                     <td class="px-5 py-4 text-gray-300">{{ $member->envelope_number }}</td>
                                     <td class="px-5 py-4 text-gray-300">
                                         {{ __('members.'.strtolower($member->gender)) }}

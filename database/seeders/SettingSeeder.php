@@ -69,5 +69,13 @@ class SettingSeeder extends Seeder
                 'group' => 'general',
             ],
         );
+
+        Setting::firstOrCreate(
+            ['key' => 'community_code_prefix'],
+            [
+                'value' => 'JUM',
+                'group' => 'general',
+            ],
+        );
     }
 }

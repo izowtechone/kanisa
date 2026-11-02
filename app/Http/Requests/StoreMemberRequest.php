@@ -26,6 +26,15 @@ class StoreMemberRequest extends FormRequest
             'email' => ['nullable', 'email', 'max:255'],
             'address' => ['nullable', 'string', 'max:2000'],
             'status' => ['required', Rule::in(['active', 'inactive'])],
+            'sms_opt_in' => ['sometimes', 'boolean'],
+            'preferred_language' => ['sometimes', 'nullable', Rule::in(['en', 'sw'])],
+            'community_id' => [
+                $this->user()?->can('assign members to communities') ? 'nullable' : 'prohibited',
+                'integer',
+                Rule::exists('communities', 'id')
+                    ->where('status', 'active')
+                    ->whereNull('deleted_at'),
+            ],
         ];
     }
 

@@ -1,3 +1,191 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+/*
+ * KKKT CMS - Premium Dark design tokens.
+ * Brand shades are overridden at runtime from Settings (see App\Services\BrandPalette).
+ */
+:root {
+    --brand-50: 239 246 255;
+    --brand-100: 219 234 254;
+    --brand-200: 191 219 254;
+    --brand-300: 147 197 253;
+    --brand-400: 96 165 250;
+    --brand-500: 59 130 246;
+    --brand-600: 37 99 235;
+    --brand-700: 29 78 216;
+    --brand-800: 30 64 175;
+    --brand-900: 30 58 138;
+    --brand-950: 23 37 84;
+
+    --color-bg: #0b1120;
+    --color-surface: #101827;
+    --color-surface-raised: #162033;
+    --color-border: #1e293b;
+    --color-text: #e2e8f0;
+    --color-text-muted: #94a3b8;
+    --color-success: #34d399;
+    --color-warning: #fbbf24;
+    --color-danger: #f87171;
+    --color-info: #38bdf8;
+}
+
+[x-cloak] {
+    display: none !important;
+}
+
+@layer base {
+    body {
+        @apply bg-surface-base text-slate-200 antialiased;
+    }
+
+    :focus-visible {
+        outline: 2px solid rgb(var(--brand-500));
+        outline-offset: 2px;
+    }
+}
+
+@layer components {
+    .skip-link {
+        @apply absolute z-[60] -translate-y-[200%] rounded-lg bg-blue-600 px-4 py-2 text-white;
+    }
+
+    .skip-link:focus {
+        @apply fixed left-4 top-4 translate-y-0;
+    }
+
+    /* Sidebar */
+    .nav-link {
+        @apply flex items-center gap-3 rounded-control border border-transparent px-3.5 py-2.5 text-sm text-slate-400 transition-colors;
+    }
+
+    .nav-link:hover {
+        @apply bg-slate-800 text-white;
+    }
+
+    .nav-link svg {
+        @apply h-5 w-5 shrink-0;
+    }
+
+    .nav-link-active,
+    .nav-link-active:hover {
+        @apply border-blue-500/20 bg-blue-600/15 font-semibold text-blue-400;
+    }
+
+    .nav-group-button {
+        @apply flex w-full items-center justify-between rounded-lg px-3 py-2 text-[11px] font-bold uppercase tracking-[0.16em] text-slate-500 transition-colors hover:text-slate-300;
+    }
+
+    /* Layout primitives */
+    .page-header {
+        @apply mb-6 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between;
+    }
+
+    .page-title {
+        @apply text-2xl font-bold tracking-tight text-white;
+    }
+
+    .page-description {
+        @apply mt-1 max-w-3xl text-sm text-slate-400;
+    }
+
+    .card {
+        @apply rounded-card border border-slate-800 bg-surface-raised/60 p-5 sm:p-6;
+    }
+
+    .stat-card {
+        @apply rounded-card border border-slate-800 bg-surface-raised/60 p-5;
+    }
+
+    /* Buttons */
+    .btn {
+        @apply inline-flex items-center justify-center gap-2 rounded-control border border-transparent px-4 py-2.5 text-sm font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-60;
+    }
+
+    .btn-primary {
+        @apply btn bg-blue-600 text-white hover:bg-blue-500;
+    }
+
+    .btn-secondary {
+        @apply btn border-slate-700 bg-transparent text-slate-200 hover:bg-slate-800;
+    }
+
+    .btn-danger {
+        @apply btn bg-red-600 text-white hover:bg-red-500;
+    }
+
+    .btn-sm {
+        @apply px-3 py-1.5 text-xs;
+    }
+
+    /* Forms */
+    .field-label {
+        @apply mb-1.5 block text-sm font-medium text-slate-300;
+    }
+
+    .field-hint {
+        @apply mt-1.5 text-xs text-slate-500;
+    }
+
+    .field-error {
+        @apply mt-1.5 text-xs font-medium text-red-400;
+    }
+
+    .field-input {
+        @apply block w-full rounded-control border-slate-700 bg-slate-900/80 px-3.5 py-2.5 text-sm text-slate-100 placeholder-slate-500 shadow-sm focus:border-blue-500 focus:ring-blue-500;
+    }
+
+    /* Tables and badges */
+    .table-wrap {
+        @apply overflow-x-auto rounded-card border border-slate-800;
+    }
+
+    .data-table {
+        @apply min-w-full divide-y divide-slate-800 text-sm;
+    }
+
+    .data-table th {
+        @apply bg-slate-900/60 px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-400;
+    }
+
+    .data-table td {
+        @apply px-4 py-3 text-slate-300;
+    }
+
+    .badge {
+        @apply inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-semibold;
+    }
+
+    .badge-success {
+        @apply badge border-emerald-500/30 bg-emerald-500/10 text-emerald-300;
+    }
+
+    .badge-warning {
+        @apply badge border-amber-500/30 bg-amber-500/10 text-amber-300;
+    }
+
+    .badge-danger {
+        @apply badge border-red-500/30 bg-red-500/10 text-red-300;
+    }
+
+    .badge-info {
+        @apply badge border-sky-500/30 bg-sky-500/10 text-sky-300;
+    }
+
+    .badge-muted {
+        @apply badge border-slate-600/40 bg-slate-700/30 text-slate-300;
+    }
+
+    .alert {
+        @apply rounded-control border px-4 py-3 text-sm;
+    }
+
+    .alert-success {
+        @apply alert border-emerald-500/30 bg-emerald-500/10 text-emerald-200;
+    }
+
+    .alert-danger {
+        @apply alert border-red-500/30 bg-red-500/10 text-red-200;
+    }
+}

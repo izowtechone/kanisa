@@ -22,6 +22,12 @@ class SaveChurchSettingsRequest extends FormRequest
                 'max:80',
                 'regex:/^[A-Za-z0-9]+(?:-[A-Za-z0-9]+)*$/',
             ],
+            'community_code_prefix' => [
+                'nullable',
+                'string',
+                'max:20',
+                'regex:/^[A-Za-z0-9]+(?:-[A-Za-z0-9]+)*$/',
+            ],
             'system_language' => ['required', Rule::in(['en', 'sw'])],
             'church_logo' => ['nullable', 'image', 'mimes:jpg,jpeg,png,webp', 'extensions:jpg,jpeg,png,webp', 'max:2048'],
             'remove_church_logo' => ['sometimes', 'boolean'],

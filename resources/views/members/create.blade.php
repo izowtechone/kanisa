@@ -162,6 +162,98 @@
                     </div>
                 </section>
 
+                @can('assign members to communities')
+                    <section
+                        x-data="{
+                            query: '',
+                            results: [],
+                            selected: @js($selectedCommunity ? ['id' => $selectedCommunity->id, 'name' => $selectedCommunity->name, 'code' => $selectedCommunity->code] : null),
+                            lookupUrl: @js(route('communities.lookup')),
+                            message: '',
+                            async lookup() {
+                                const value = this.query.trim();
+                                this.results = [];
+                                this.message = '';
+                                if (value.length < 2) {
+                                    this.message = @js(__('members.community_search_hint'));
+                                    return;
+                                }
+                                const url = new URL(this.lookupUrl);
+                                url.searchParams.set('search', value);
+                                try {
+                                    const response = await fetch(url, { headers: { 'Accept': 'application/json' } });
+                                    if (!response.ok) {
+                                        throw new Error('lookup-failed');
+                                    }
+                                    const payload = await response.json();
+                                    this.results = payload.data;
+                                    this.message = this.results.length ? '' : @js(__('members.no_community_results'));
+                                } catch {
+                                    this.message = @js(__('members.community_lookup_failed'));
+                                }
+                            },
+                            choose(community) {
+                                this.selected = community;
+                                this.results = [];
+                                this.query = '';
+                                this.message = '';
+                            },
+                            clear() {
+                                this.selected = null;
+                                this.query = '';
+                                this.results = [];
+                            }
+                        }"
+                        class="space-y-5"
+                    >
+                        <h3 class="border-b border-gray-800 pb-3 text-lg font-semibold">{{ __('members.community') }}</h3>
+                        <input type="hidden" name="community_id" :value="selected ? selected.id : ''">
+                        <div class="space-y-3">
+                            <label for="community-search" class="{{ $labelClass }}">{{ __('members.search_community') }}</label>
+                            <div class="flex flex-col gap-2 sm:flex-row">
+                                <input
+                                    id="community-search"
+                                    type="search"
+                                    x-model="query"
+                                    @keydown.enter.prevent="lookup()"
+                                    maxlength="100"
+                                    autocomplete="off"
+                                    aria-controls="community-search-results"
+                                    class="{{ $baseInput }} {{ $inputBorder }}"
+                                    placeholder="{{ __('members.search_community') }}"
+                                >
+                                <button type="button" @click="lookup()" class="rounded-lg border border-blue-500/40 bg-blue-500/10 px-4 py-3 text-sm font-semibold text-blue-300 transition hover:bg-blue-500/20">
+                                    {{ __('members.search') }}
+                                </button>
+                            </div>
+                            <p class="text-xs text-gray-500">{{ __('members.community_search_hint') }}</p>
+                            @error('community_id')<p role="alert" class="text-sm text-red-400">{{ $message }}</p>@enderror
+                            <p x-cloak x-show="message" aria-live="polite" class="text-sm text-gray-400" x-text="message"></p>
+                            <div id="community-search-results" x-cloak x-show="results.length" class="overflow-hidden rounded-lg border border-gray-700">
+                                <ul class="divide-y divide-gray-800" role="listbox" aria-label="{{ __('members.search_community') }}">
+                                    <template x-for="community in results" :key="community.id">
+                                        <li role="option">
+                                            <button type="button" @click="choose(community)" class="flex w-full items-center justify-between gap-3 px-4 py-3 text-left text-sm text-gray-200 transition hover:bg-gray-800">
+                                                <span x-text="community.name"></span>
+                                                <span class="font-mono text-xs text-blue-300" x-text="community.code"></span>
+                                            </button>
+                                        </li>
+                                    </template>
+                                </ul>
+                            </div>
+                            <div x-cloak x-show="selected" class="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-emerald-800/70 bg-emerald-950/30 px-4 py-3">
+                                <p class="text-sm text-emerald-200">
+                                    <span class="font-semibold" x-text="selected ? selected.name : ''"></span>
+                                    <span class="ml-2 font-mono text-xs text-emerald-300" x-text="selected ? selected.code : ''"></span>
+                                </p>
+                                <button type="button" @click="clear()" class="text-sm font-semibold text-gray-300 underline underline-offset-4 hover:text-white">
+                                    {{ __('members.clear_community') }}
+                                </button>
+                            </div>
+                        </div>
+                    </section>
+                @endcan
+
                 <section class="space-y-5">
                     <h3 class="border-b border-gray-800 pb-3 text-lg font-semibold">
                         {{ __('members.personal_details') }}
@@ -252,6 +344,22 @@
                             @enderror
                         </div>
 
+                        <div class="flex items-start gap-3 rounded-lg border border-gray-800 bg-[#0b1120] p-4">
+                            <input type="hidden" name="sms_opt_in" value="0">
+                            <input
+                                id="sms_opt_in"
+                                type="checkbox"
+                                name="sms_opt_in"
+                                value="1"
+                                @checked((bool) old('sms_opt_in', $member?->sms_opt_in ?? false))
+                                class="mt-1 rounded border-gray-600 bg-[#0b1120] text-blue-500 focus:ring-blue-500"
+                            >
+                            <label for="sms_opt_in" class="text-sm text-gray-300">
+                                <span class="block font-medium">{{ __('members.sms_opt_in') }}</span>
+                                <span class="mt-1 block text-xs text-gray-500">{{ __('members.sms_opt_in_help') }}</span>
+                            </label>
+                        </div>
+
                         <div>
                             <label for="email" class="{{ $labelClass }}">{{ __('members.email') }}</label>
                             <input
@@ -266,6 +374,22 @@
                             @error('email')
                                 <p class="mt-1 text-xs text-red-400">{{ $message }}</p>
                             @enderror
+                        </div>
+
+                        <div>
+                            <label for="preferred_language" class="{{ $labelClass }}">{{ __('members.preferred_language') }}</label>
+                            <select
+                                id="preferred_language"
+                                name="preferred_language"
+                                class="{{ $baseInput }} {{ $errors->has('preferred_language') ? $inputError : $inputBorder }}"
+                            >
+                                <option value="" @selected(blank(old('preferred_language', $member?->preferred_language)))>
+                                    {{ __('members.system_default_language') }} ({{ $systemLanguage === 'en' ? __('members.english') : __('members.kiswahili') }})
+                                </option>
+                                <option value="sw" @selected(old('preferred_language', $member?->preferred_language) === 'sw')>{{ __('members.kiswahili') }}</option>
+                                <option value="en" @selected(old('preferred_language', $member?->preferred_language) === 'en')>{{ __('members.english') }}</option>
+                            </select>
+                            @error('preferred_language')<p class="mt-1 text-xs text-red-400">{{ $message }}</p>@enderror
                         </div>
 
                         <div class="md:col-span-2">

@@ -2,7 +2,7 @@
 
 namespace App\Http\Middleware;
 
-use App\Models\Setting;
+use App\Services\AppSettings;
 use Closure;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\App;
@@ -10,11 +10,22 @@ use Symfony\Component\HttpFoundation\Response;
 
 class SetSystemLocale
 {
+    public function __construct(private AppSettings $settings) {}
+
     public function handle(Request $request, Closure $next): Response
     {
-        $locale = Setting::getValue('system_language', config('app.locale'));
+        $this->settings->forget();
 
-        App::setLocale(in_array($locale, ['en', 'sw'], true) ? $locale : config('app.locale'));
+        $sessionLocale = $request->hasSession() ? $request->session()->get('locale') : null;
+        $locale = in_array($sessionLocale, AppSettings::LOCALES, true)
+            ? $sessionLocale
+            : $this->settings->locale();
+
+        App::setLocale($locale);
+
+        $timezone = $this->settings->timezone();
+        config(['app.timezone' => $timezone]);
+        date_default_timezone_set($timezone);
 
         return $next($request);
     }

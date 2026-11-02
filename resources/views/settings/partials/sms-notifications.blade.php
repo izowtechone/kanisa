@@ -1,39 +1,51 @@
 <section id="sms-notifications" class="scroll-mt-24 space-y-6 rounded-2xl border border-slate-800 bg-[#111a2e] p-6 shadow-xl sm:p-8">
     <div>
         <p class="text-xs font-semibold uppercase tracking-[0.2em] text-blue-400">{{ __('finance.sms_notifications_title') }}</p>
-        <h2 class="mt-2 text-xl font-bold text-white">{{ __('finance.beem_settings') }}</h2>
+        <h2 class="mt-2 text-xl font-bold text-white">{{ __('finance.swala_settings') }}</h2>
         <p class="mt-2 text-sm text-slate-400">{{ __('finance.sms_notifications_description') }}</p>
     </div>
 
-    @if (session('sms_connection'))
-        <div role="status" class="rounded-xl border border-emerald-800 bg-emerald-950/50 px-5 py-4 text-sm text-emerald-300">{{ session('sms_connection') }}</div>
-    @endif
-
-    @if ($smsSettings['lastBalance'] !== null)
-        <div class="rounded-xl border border-slate-700 bg-[#0b1120] px-4 py-3 text-sm text-slate-300">
-            <p>{{ __('finance.beem_last_balance', ['balance' => $smsSettings['lastBalance']]) }}</p>
-            @if ($smsSettings['lastBalanceCheckedAt'])
-                <p class="mt-1 text-xs text-slate-500">{{ __('finance.beem_balance_checked_at', ['date' => \Illuminate\Support\Carbon::parse($smsSettings['lastBalanceCheckedAt'])->format('Y-m-d H:i:s')]) }}</p>
-            @endif
-            @if ($smsSettings['lowCreditThreshold'] !== '' && (float) $smsSettings['lastBalance'] < (float) $smsSettings['lowCreditThreshold'])
-                <p role="status" class="mt-2 font-semibold text-amber-300">{{ __('finance.beem_low_credit_warning') }}</p>
-            @endif
-        </div>
-    @endif
-
     <div class="flex flex-wrap gap-3">
-        <form method="POST" action="{{ route('finance.sms.connection-test') }}">
-            @csrf
-            <button type="submit" class="rounded-lg border border-slate-700 px-4 py-2.5 text-sm font-semibold text-slate-200 transition hover:bg-slate-800">
-                {{ __('finance.beem_test_connection') }}
-            </button>
-        </form>
-
         @can('view SMS history')
             <a href="{{ route('finance.sms.index') }}" class="rounded-lg border border-slate-700 px-4 py-2.5 text-sm font-semibold text-blue-300 transition hover:bg-slate-800">
                 {{ __('finance.manage_sms') }}
             </a>
         @endcan
+    </div>
+
+    <div role="note" class="space-y-2 rounded-xl border border-amber-800/70 bg-amber-950/30 p-4 text-sm text-amber-200">
+        <p>{{ __('finance.sms_delivery_tracking_note') }}</p>
+    </div>
+
+    <div class="space-y-3 rounded-xl border border-slate-800 bg-[#0b1120] p-4 text-sm text-slate-300">
+        <div class="flex flex-wrap items-center justify-between gap-3">
+            <div>
+                <p class="font-semibold text-white">{{ __('finance.swala_connection') }}</p>
+                @if ($smsSettings['lastCheckAt'])
+                    <p class="mt-1 text-xs text-slate-400">
+                        {{ __('finance.swala_last_checked', ['date' => \Illuminate\Support\Carbon::parse($smsSettings['lastCheckAt'])->format('Y-m-d H:i')]) }}
+                        —
+                        @if ($smsSettings['lastCheckStatus'] === 'ok')
+                            <span class="text-emerald-300">{{ __('finance.swala_last_balance', ['balance' => $smsSettings['lastBalance']]) }}</span>
+                        @else
+                            <span class="text-rose-300">{{ $smsSettings['lastCheckMessage'] }}</span>
+                        @endif
+                    </p>
+                @else
+                    <p class="mt-1 text-xs text-slate-500">{{ __('finance.swala_never_checked') }}</p>
+                @endif
+                @if ($smsSettings['lastSuccessAt'])
+                    <p class="mt-1 text-xs text-slate-400">{{ __('finance.swala_last_success', ['date' => \Illuminate\Support\Carbon::parse($smsSettings['lastSuccessAt'])->format('Y-m-d H:i')]) }}</p>
+                @endif
+            </div>
+            @if ($smsSettings['credentialsConfigured'])
+                <form method="POST" action="{{ route('finance.sms.settings.test-connection') }}">
+                    @csrf
+                    <button type="submit" class="rounded-lg border border-blue-500/40 bg-blue-600/20 px-4 py-2 text-sm font-semibold text-blue-200 transition hover:bg-blue-600/30">{{ __('finance.swala_test_connection') }}</button>
+                </form>
+            @endif
+        </div>
+        @error('sms')<p class="text-xs text-rose-300">{{ $message }}</p>@enderror
     </div>
 
     <form
@@ -48,66 +60,74 @@
 
         <div class="grid gap-5 sm:grid-cols-2">
             <label class="flex items-start gap-3 rounded-xl border border-slate-800 bg-[#0b1120] p-4 text-sm text-slate-300">
-                <input type="hidden" name="beem_enabled" value="0">
-                <input type="checkbox" name="beem_enabled" value="1" @checked(old('beem_enabled', $smsSettings['enabled'] ? '1' : '0') === '1') class="mt-1 rounded border-slate-600 bg-[#0b1120] text-blue-500">
-                <span>{{ __('finance.beem_enabled') }}</span>
+                <input type="hidden" name="swala_enabled" value="0">
+                <input type="checkbox" name="swala_enabled" value="1" @checked(old('swala_enabled', $smsSettings['enabled'] ? '1' : '0') === '1') class="mt-1 rounded border-slate-600 bg-[#0b1120] text-blue-500">
+                <span>{{ __('finance.swala_enabled') }}</span>
             </label>
             <label class="flex items-start gap-3 rounded-xl border border-slate-800 bg-[#0b1120] p-4 text-sm text-slate-300">
-                <input type="hidden" name="beem_test_mode" value="0">
-                <input type="checkbox" name="beem_test_mode" value="1" @checked(old('beem_test_mode', $smsSettings['testMode'] ? '1' : '0') === '1') class="mt-1 rounded border-slate-600 bg-[#0b1120] text-blue-500">
-                <span><span class="block font-medium">{{ __('finance.beem_test_mode') }}</span><span class="mt-1 block text-xs text-slate-400">{{ __('finance.test_mode_help') }}</span></span>
+                <input type="hidden" name="swala_test_mode" value="0">
+                <input type="checkbox" name="swala_test_mode" value="1" @checked(old('swala_test_mode', $smsSettings['testMode'] ? '1' : '0') === '1') class="mt-1 rounded border-slate-600 bg-[#0b1120] text-blue-500">
+                <span><span class="block font-medium">{{ __('finance.swala_test_mode') }}</span><span class="mt-1 block text-xs text-slate-400">{{ __('finance.test_mode_help') }}</span></span>
             </label>
         </div>
 
-        <p class="text-sm text-slate-400">{{ $smsSettings['credentialsConfigured'] ? __('finance.credentials_configured') : __('finance.credentials_missing') }}</p>
+        <p class="text-sm text-slate-400">
+            {{ $smsSettings['credentialsConfigured'] ? __('finance.credentials_configured') : __('finance.credentials_missing') }}
+            @if ($smsSettings['keyEnvironment'])
+                <span class="ml-1 rounded-full border border-slate-700 px-2 py-0.5 text-xs text-slate-300">{{ __('finance.swala_key_environment.'.$smsSettings['keyEnvironment']) }}</span>
+            @endif
+        </p>
         <p class="text-xs text-slate-500">{{ __('finance.credentials_masked') }}</p>
 
         <div class="grid gap-5 sm:grid-cols-2">
             <label class="block space-y-2 text-sm text-slate-300">
-                <span>{{ __('finance.beem_api_key') }}</span>
-                <input type="password" name="beem_api_key" autocomplete="new-password" placeholder="{{ __('finance.credentials_placeholder') }}" class="w-full rounded-lg border-slate-700 bg-[#0b1120] text-slate-100">
-                @error('beem_api_key')<span class="text-xs text-rose-300">{{ $message }}</span>@enderror
+                <span>{{ __('finance.swala_api_key') }}</span>
+                <input type="password" name="swala_api_key" autocomplete="new-password" placeholder="{{ __('finance.credentials_placeholder') }}" class="w-full rounded-lg border-slate-700 bg-[#0b1120] text-slate-100">
+                <span class="block text-xs text-slate-500">{{ __('finance.swala_api_key_help') }}</span>
+                @error('swala_api_key')<span class="text-xs text-rose-300">{{ $message }}</span>@enderror
             </label>
             <label class="block space-y-2 text-sm text-slate-300">
-                <span>{{ __('finance.beem_api_secret') }}</span>
-                <input type="password" name="beem_api_secret" autocomplete="new-password" placeholder="{{ __('finance.credentials_placeholder') }}" class="w-full rounded-lg border-slate-700 bg-[#0b1120] text-slate-100">
-                @error('beem_api_secret')<span class="text-xs text-rose-300">{{ $message }}</span>@enderror
+                <span>{{ __('finance.swala_webhook_secret') }}</span>
+                <input type="password" name="swala_webhook_secret" autocomplete="new-password" placeholder="{{ $smsSettings['webhookSecretConfigured'] ? __('finance.credentials_placeholder') : '' }}" class="w-full rounded-lg border-slate-700 bg-[#0b1120] text-slate-100">
+                <span class="block text-xs text-slate-500">{{ $smsSettings['webhookSecretConfigured'] ? __('finance.swala_webhook_secret_configured') : __('finance.swala_webhook_secret_missing') }}</span>
+                @error('swala_webhook_secret')<span class="text-xs text-rose-300">{{ $message }}</span>@enderror
             </label>
+        </div>
+
+        <div class="rounded-xl border border-slate-800 bg-[#0b1120] p-4 text-sm text-slate-300">
+            <p class="font-semibold text-white">{{ __('finance.swala_webhook_url') }}</p>
+            <p class="mt-1 break-all font-mono text-xs text-blue-300">{{ $smsSettings['webhookUrl'] }}</p>
+            <p class="mt-2 text-xs text-slate-400">{{ __('finance.swala_webhook_help') }}</p>
         </div>
 
         <label class="flex items-start gap-3 text-sm text-slate-300">
-            <input type="checkbox" name="clear_beem_credentials" value="1" @checked(old('clear_beem_credentials')) class="mt-1 rounded border-slate-600 bg-[#0b1120] text-blue-500">
-            <span>{{ __('finance.clear_beem_credentials') }}</span>
+            <input type="checkbox" name="clear_swala_credentials" value="1" @checked(old('clear_swala_credentials')) class="mt-1 rounded border-slate-600 bg-[#0b1120] text-blue-500">
+            <span>{{ __('finance.clear_swala_credentials') }}</span>
         </label>
+        @error('clear_swala_credentials')<span class="text-xs text-rose-300">{{ $message }}</span>@enderror
 
         <div class="grid gap-5 sm:grid-cols-2">
             <label class="block space-y-2 text-sm text-slate-300">
-                <span>{{ __('finance.beem_sender_id') }}</span>
-                <input name="beem_sender_id" maxlength="11" value="{{ old('beem_sender_id', $smsSettings['senderId']) }}" autocomplete="off" class="w-full rounded-lg border-slate-700 bg-[#0b1120] text-slate-100">
-                @error('beem_sender_id')<span class="text-xs text-rose-300">{{ $message }}</span>@enderror
+                <span>{{ __('finance.swala_sender_id') }}</span>
+                <input name="swala_sender_id" maxlength="20" value="{{ old('swala_sender_id', $smsSettings['senderId']) }}" autocomplete="off" class="w-full rounded-lg border-slate-700 bg-[#0b1120] text-slate-100">
+                @error('swala_sender_id')<span class="text-xs text-rose-300">{{ $message }}</span>@enderror
             </label>
             <label class="block space-y-2 text-sm text-slate-300">
-                <span>{{ __('finance.beem_language') }}</span>
-                <select name="beem_language" required class="w-full rounded-lg border-slate-700 bg-[#0b1120] text-slate-100">
-                    <option value="sw" @selected(old('beem_language', $smsSettings['language']) === 'sw')>{{ __('members.kiswahili') }}</option>
-                    <option value="en" @selected(old('beem_language', $smsSettings['language']) === 'en')>{{ __('members.english') }}</option>
+                <span>{{ __('finance.sms_language') }}</span>
+                <select name="sms_language" required class="w-full rounded-lg border-slate-700 bg-[#0b1120] text-slate-100">
+                    <option value="sw" @selected(old('sms_language', $smsSettings['language']) === 'sw')>{{ __('members.kiswahili') }}</option>
+                    <option value="en" @selected(old('sms_language', $smsSettings['language']) === 'en')>{{ __('members.english') }}</option>
                 </select>
-                @error('beem_language')<span class="text-xs text-rose-300">{{ $message }}</span>@enderror
+                @error('sms_language')<span class="text-xs text-rose-300">{{ $message }}</span>@enderror
             </label>
         </div>
-
-        <label class="block space-y-2 text-sm text-slate-300">
-            <span>{{ __('finance.beem_low_credit_threshold') }}</span>
-            <input type="number" name="beem_low_credit_threshold" min="0" max="1000000000" step="0.01" value="{{ old('beem_low_credit_threshold', $smsSettings['lowCreditThreshold']) }}" class="w-full rounded-lg border-slate-700 bg-[#0b1120] text-slate-100">
-            @error('beem_low_credit_threshold')<span class="text-xs text-rose-300">{{ $message }}</span>@enderror
-        </label>
 
         <fieldset class="space-y-3">
             <legend class="text-sm font-semibold text-white">{{ __('finance.automatic_sms_notifications') }}</legend>
             @foreach ([
-                'beem_auto_offering' => ['translation' => 'beem_auto_offering', 'value' => $smsSettings['autoOffering']],
-                'beem_auto_contribution' => ['translation' => 'beem_auto_contribution', 'value' => $smsSettings['autoContribution']],
-                'beem_auto_other_income' => ['translation' => 'beem_auto_other_income', 'value' => $smsSettings['autoOtherIncome']],
+                'sms_auto_offering' => ['translation' => 'sms_auto_offering', 'value' => $smsSettings['autoOffering']],
+                'sms_auto_contribution' => ['translation' => 'sms_auto_contribution', 'value' => $smsSettings['autoContribution']],
+                'sms_auto_other_income' => ['translation' => 'sms_auto_other_income', 'value' => $smsSettings['autoOtherIncome']],
             ] as $field => $setting)
                 <label class="flex items-start gap-3 text-sm text-slate-300">
                     <input type="hidden" name="{{ $field }}" value="0">
@@ -122,14 +142,16 @@
             <p class="text-xs text-slate-400">{{ __('finance.sms_template_help') }}</p>
             <div class="grid gap-5 sm:grid-cols-2">
                 @foreach ([
-                    'beem_template_offering_en' => 'sms_template_offering_en',
-                    'beem_template_offering_sw' => 'sms_template_offering_sw',
-                    'beem_template_contribution_en' => 'sms_template_contribution_en',
-                    'beem_template_contribution_sw' => 'sms_template_contribution_sw',
+                    'sms_template_offering_en' => 'sms_template_offering_en',
+                    'sms_template_offering_sw' => 'sms_template_offering_sw',
+                    'sms_template_contribution_en' => 'sms_template_contribution_en',
+                    'sms_template_contribution_sw' => 'sms_template_contribution_sw',
+                    'sms_template_sunday_offering_en' => 'sms_template_sunday_offering_en',
+                    'sms_template_sunday_offering_sw' => 'sms_template_sunday_offering_sw',
                 ] as $field => $label)
                     <label class="block space-y-2 text-sm text-slate-300">
                         <span>{{ __('finance.'.$label) }}</span>
-                        <textarea name="{{ $field }}" rows="3" required maxlength="500" class="w-full rounded-lg border-slate-700 bg-[#0b1120] text-slate-100">{{ old($field, $smsSettings['templates'][str_replace('beem_template_', '', $field)]) }}</textarea>
+                        <textarea name="{{ $field }}" rows="3" required maxlength="500" class="w-full rounded-lg border-slate-700 bg-[#0b1120] text-slate-100">{{ old($field, $smsSettings['templates'][str_replace('sms_template_', '', $field)]) }}</textarea>
                         @error($field)<span class="text-xs text-rose-300">{{ $message }}</span>@enderror
                     </label>
                 @endforeach
@@ -143,7 +165,6 @@
             </button>
         </div>
     </form>
-
     @if ($canSendTestSms)
         <form
             x-data="{ type: 'offering', language: '{{ $smsSettings['language'] }}', previewMap: @js($smsTemplatePreviews), saving: false }"
@@ -156,6 +177,7 @@
             <div>
                 <h3 class="font-semibold text-white">{{ __('finance.test_sms') }}</h3>
                 <p class="mt-1 text-sm text-slate-400">{{ __('finance.test_sms_description') }}</p>
+                <p class="mt-2 text-sm text-amber-200">{{ __('finance.test_sms_warning') }}</p>
             </div>
 
             <label class="block space-y-2 text-sm text-slate-300">
@@ -173,7 +195,7 @@
                     </select>
                 </label>
                 <label class="block space-y-2 text-sm text-slate-300">
-                    <span>{{ __('finance.beem_language') }}</span>
+                    <span>{{ __('finance.sms_language') }}</span>
                     <select name="language" x-model="language" required class="w-full rounded-lg border-slate-700 bg-[#0b1120] text-slate-100">
                         <option value="sw">{{ __('members.kiswahili') }}</option>
                         <option value="en">{{ __('members.english') }}</option>
@@ -201,7 +223,6 @@
     @endif
 
     <div class="rounded-xl border border-slate-800 bg-[#0b1120] p-4 text-sm text-slate-400">
-        <p>{{ __('finance.beem_credit_note') }}</p>
-        <a href="https://beem.africa" target="_blank" rel="noopener noreferrer" class="mt-2 inline-flex font-semibold text-blue-300 hover:text-blue-200">{{ __('finance.buy_sms_credits') }}</a>
+        <p>{{ __('finance.swala_credit_note') }}</p>
     </div>
 </section>

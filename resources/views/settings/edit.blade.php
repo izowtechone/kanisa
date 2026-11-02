@@ -104,6 +104,29 @@
                         @enderror
                     </div>
 
+                    <div>
+                        <label for="community_code_prefix" class="mb-2 block text-sm font-medium text-gray-300">
+                            {{ __('communities.code_prefix') }}
+                        </label>
+                        <input
+                            id="community_code_prefix"
+                            type="text"
+                            name="community_code_prefix"
+                            value="{{ old('community_code_prefix', $communityCodePrefix) }}"
+                            maxlength="20"
+                            pattern="[A-Za-z0-9]+(-[A-Za-z0-9]+)*"
+                            autocomplete="off"
+                            aria-describedby="community-code-prefix-help"
+                            class="w-full rounded-lg border border-gray-700 bg-[#0b1120] px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-blue-500 {{ $errors->has('community_code_prefix') ? 'border-red-600' : '' }}"
+                        >
+                        <p id="community-code-prefix-help" class="mt-2 text-xs text-gray-500">
+                            {{ __('communities.code_prefix_help') }}
+                        </p>
+                        @error('community_code_prefix')
+                            <p class="mt-1 text-xs text-red-400">{{ $message }}</p>
+                        @enderror
+                    </div>
+
                     <div class="flex justify-end border-t border-gray-800 pt-5">
                         <button
                             type="submit"

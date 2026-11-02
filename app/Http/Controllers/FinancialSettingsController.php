@@ -5,16 +5,16 @@ namespace App\Http\Controllers;
 use App\Http\Requests\SaveFinancialSettingsRequest;
 use App\Http\Requests\SaveFinancialSmsSettingsRequest;
 use App\Http\Requests\SaveReceiptSettingsRequest;
-use App\Http\Requests\TestFinancialSmsSettingsConnectionRequest;
 use App\Models\FinancialSetting;
 use App\Models\FinancialTransaction;
 use App\Models\Setting;
-use App\Services\BeemSmsGateway;
+use App\Services\SmsSettings;
+use App\Services\SwalaSmsException;
+use App\Services\SwalaSmsService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 use Illuminate\View\View;
-use RuntimeException;
 
 class FinancialSettingsController extends Controller
 {
@@ -69,34 +69,46 @@ class FinancialSettingsController extends Controller
         $validated = $request->validated();
 
         DB::transaction(function () use ($request, $validated): void {
-            if ($request->boolean('clear_beem_credentials')) {
-                FinancialSetting::setValue('beem_api_key', null);
-                FinancialSetting::setValue('beem_api_secret', null);
-            } elseif ($request->filled('beem_api_key') && $request->filled('beem_api_secret')) {
-                FinancialSetting::setValue('beem_api_key', $validated['beem_api_key']);
-                FinancialSetting::setValue('beem_api_secret', $validated['beem_api_secret']);
+            if ($request->boolean('clear_swala_credentials')) {
+                FinancialSetting::setValue('swala_api_key', null);
+                FinancialSetting::setValue('swala_webhook_secret', null);
+            } else {
+                if ($request->filled('swala_api_key')) {
+                    FinancialSetting::setValue('swala_api_key', $validated['swala_api_key']);
+                }
+
+                if ($request->filled('swala_webhook_secret')) {
+                    FinancialSetting::setValue('swala_webhook_secret', $validated['swala_webhook_secret']);
+                }
             }
 
-            foreach ([
-                'beem_sender_id',
-                'beem_language',
-                'beem_low_credit_threshold',
-                'beem_template_offering_en',
-                'beem_template_offering_sw',
-                'beem_template_contribution_en',
-                'beem_template_contribution_sw',
-            ] as $key) {
-                FinancialSetting::setValue($key, $validated[$key] ?? null);
+            if ($request->filled('swala_api_key') || $request->boolean('clear_swala_credentials')) {
+                FinancialSetting::setValue('swala_last_check_at', null);
+                FinancialSetting::setValue('swala_last_check_status', null);
+                FinancialSetting::setValue('swala_last_check_message', null);
+                FinancialSetting::setValue('swala_last_balance', null);
             }
 
+            FinancialSetting::setValue('swala_sender_id', trim((string) ($validated['swala_sender_id'] ?? '')));
+
             foreach ([
-                'beem_enabled',
-                'beem_test_mode',
-                'beem_auto_offering',
-                'beem_auto_contribution',
-                'beem_auto_other_income',
-            ] as $key) {
+                'language',
+                'template_offering_en',
+                'template_offering_sw',
+                'template_contribution_en',
+                'template_contribution_sw',
+                'template_sunday_offering_en',
+                'template_sunday_offering_sw',
+            ] as $name) {
+                SmsSettings::setShared($name, $validated['sms_'.$name]);
+            }
+
+            foreach (['swala_enabled', 'swala_test_mode'] as $key) {
                 FinancialSetting::setValue($key, $request->boolean($key) ? '1' : '0');
+            }
+
+            foreach (['auto_offering', 'auto_contribution', 'auto_other_income'] as $name) {
+                SmsSettings::setShared($name, $request->boolean('sms_'.$name) ? '1' : '0');
             }
         });
 
@@ -105,31 +117,33 @@ class FinancialSettingsController extends Controller
             ->with('success', __('finance.sms_settings_saved'));
     }
 
-    public function testSmsConnection(
-        TestFinancialSmsSettingsConnectionRequest $request,
-        BeemSmsGateway $gateway,
-    ): RedirectResponse {
-        if (trim((string) FinancialSetting::getValue('beem_api_key')) === ''
-            || trim((string) FinancialSetting::getValue('beem_api_secret')) === '') {
-            return redirect()->to(route('settings.edit').'#sms-notifications')->withErrors([
-                'sms_connection' => __('finance.beem_connection_missing_credentials'),
-            ]);
+    public function testSmsConnection(SwalaSmsService $swala): RedirectResponse
+    {
+        if (! SmsSettings::hasCredentials() && SmsSettings::apiKey() === '') {
+            return redirect()->to(route('settings.edit').'#sms-notifications')
+                ->withErrors(['sms' => __('finance.swala_connection_missing_credentials')]);
         }
 
         try {
-            $balance = $gateway->balance();
-        } catch (RuntimeException) {
-            return redirect()->to(route('settings.edit').'#sms-notifications')->withErrors([
-                'sms_connection' => __('finance.beem_connection_failed'),
-            ]);
+            $balance = $swala->balance();
+            FinancialSetting::setValue('swala_last_check_status', 'ok');
+            FinancialSetting::setValue('swala_last_check_message', null);
+            FinancialSetting::setValue('swala_last_balance', (string) $balance['balance']);
+            FinancialSetting::setValue('swala_last_success_at', now()->toIso8601String());
+            $success = __('finance.swala_connection_success', ['balance' => $balance['balance']]);
+        } catch (SwalaSmsException $exception) {
+            FinancialSetting::setValue('swala_last_check_status', 'failed');
+            FinancialSetting::setValue('swala_last_check_message', trim(($exception->errorCode ?? 'ERROR').': '.$exception->getMessage()));
+            FinancialSetting::setValue('swala_last_balance', null);
+            $success = null;
         }
 
-        FinancialSetting::setValue('beem_last_balance', (string) $balance['credit_balance']);
-        FinancialSetting::setValue('beem_last_balance_checked_at', now()->toDateTimeString());
+        FinancialSetting::setValue('swala_last_check_at', now()->toIso8601String());
 
-        return redirect()->to(route('settings.edit').'#sms-notifications')
-            ->with('sms_connection', __('finance.beem_connection_success', [
-                'balance' => $balance['credit_balance'],
-            ]));
+        $response = redirect()->to(route('settings.edit').'#sms-notifications');
+
+        return $success === null
+            ? $response->withErrors(['sms' => __('finance.swala_connection_failed')])
+            : $response->with('success', $success);
     }
 }

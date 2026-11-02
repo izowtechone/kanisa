@@ -2,8 +2,11 @@
 
 namespace App\Http\Requests;
 
+use App\Models\Community;
+use App\Models\Member;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
+use Illuminate\Validation\Validator;
 
 class UpdateMemberRequest extends FormRequest
 {
@@ -33,6 +36,40 @@ class UpdateMemberRequest extends FormRequest
             'email' => ['nullable', 'email', 'max:255'],
             'address' => ['nullable', 'string', 'max:2000'],
             'status' => ['required', Rule::in(['active', 'inactive'])],
+            'sms_opt_in' => ['sometimes', 'boolean'],
+            'preferred_language' => ['sometimes', 'nullable', Rule::in(['en', 'sw'])],
+            'community_id' => [
+                $this->user()?->can('assign members to communities') ? 'nullable' : 'prohibited',
+                'integer',
+                Rule::exists('communities', 'id')->whereNull('deleted_at'),
+            ],
+        ];
+    }
+
+    public function after(): array
+    {
+        return [
+            function (Validator $validator): void {
+                if ($validator->errors()->has('community_id') || ! $this->filled('community_id')) {
+                    return;
+                }
+
+                $member = $this->route('member');
+                $communityId = $this->integer('community_id');
+
+                if ($member instanceof Member && $member->community_id === $communityId) {
+                    return;
+                }
+
+                $communityIsActive = Community::query()
+                    ->whereKey($communityId)
+                    ->where('status', 'active')
+                    ->exists();
+
+                if (! $communityIsActive) {
+                    $validator->errors()->add('community_id', __('communities.inactive_assignment'));
+                }
+            },
         ];
     }
 

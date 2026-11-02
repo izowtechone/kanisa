@@ -13,6 +13,7 @@ return Application::configure(basePath: dirname(__DIR__))
         health: '/up',
     )
     ->withMiddleware(function (Middleware $middleware): void {
+        $middleware->validateCsrfTokens(except: ['webhooks/swalasms']);
         $middleware->web(append: [
             SetSystemLocale::class,
         ]);
@@ -21,6 +22,9 @@ return Application::configure(basePath: dirname(__DIR__))
         $exceptions->dontFlash([
             'beem_api_key',
             'beem_api_secret',
+            'swala_api_key',
+            'swala_webhook_secret',
+            'clear_swala_credentials',
         ]);
         $exceptions->shouldRenderJsonWhen(
             fn (Request $request) => $request->is('api/*') || $request->expectsJson(),

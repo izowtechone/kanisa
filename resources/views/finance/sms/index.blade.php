@@ -5,21 +5,61 @@
                 <h2 class="text-3xl font-bold text-white">{{ __('finance.sms_title') }}</h2>
                 <p class="mt-2 text-sm text-slate-400">{{ __('finance.sms_log_description') }}</p>
             </div>
-            @can('manage SMS settings')
-                <form method="POST" action="{{ route('finance.sms.balance') }}">
-                    @csrf
-                    <button type="submit" class="rounded-lg border border-slate-700 px-4 py-2.5 text-sm font-semibold text-slate-200 transition hover:bg-slate-800">
-                        {{ __('finance.check_sms_balance') }}
-                    </button>
-                </form>
+            @can('send bulk SMS')
+                <a href="{{ route('finance.sms.campaigns.create') }}" class="rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-blue-500">
+                    {{ __('finance.bulk_sms_create') }}
+                </a>
+            @endcan
+            @can('view SMS campaigns')
+                <a href="{{ route('finance.sms.campaigns.index') }}" class="rounded-lg border border-slate-700 px-4 py-2.5 text-sm font-semibold text-slate-200 transition hover:bg-slate-800">
+                    {{ __('finance.bulk_sms_history') }}
+                </a>
             @endcan
         </div>
 
-        @if (session('sms_balance') !== null)
-            <div role="status" class="rounded-xl border border-blue-800 bg-blue-950/50 px-5 py-4 text-sm text-blue-300">
-                {{ __('finance.sms_balance', ['balance' => session('sms_balance')]) }}
+        <p role="note" class="rounded-xl border border-blue-900/70 bg-blue-950/30 p-4 text-sm text-blue-200">{{ __('finance.sms_delivery_tracking_note') }}</p>
+
+        <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
+            <div class="rounded-2xl border border-slate-800 bg-[#111a2e] p-5">
+                <p class="text-xs uppercase tracking-wide text-slate-500">{{ __('finance.swala_provider') }}</p>
+                <p class="mt-2 text-2xl font-bold text-white">{{ __('finance.swala_provider') }}</p>
+                <p class="mt-2 text-xs text-slate-400">
+                    {{ __('finance.swala_connection') }}:
+                    @if ($lastCheckStatus === 'ok')
+                        <span class="text-emerald-300">{{ __('finance.swala_status_connected') }}</span>
+                    @elseif ($lastCheckStatus === 'failed')
+                        <span class="text-rose-300">{{ __('finance.swala_status_disconnected') }}</span>
+                    @else
+                        <span>{{ __('finance.swala_status_not_checked') }}</span>
+                    @endif
+                </p>
+                <p class="mt-1 truncate text-xs text-slate-400">{{ __('finance.swala_sender_id') }}: {{ $senderId ?: '—' }}</p>
+                @if ($lastBalance !== null)
+                    <p class="mt-1 text-xs text-slate-400">{{ __('finance.swala_last_balance', ['balance' => $lastBalance]) }}</p>
+                @endif
             </div>
-        @endif
+            <div class="rounded-2xl border border-slate-800 bg-[#111a2e] p-5">
+                <p class="text-xs uppercase tracking-wide text-slate-500">{{ __('finance.sms_total_messages') }}</p>
+                <p class="mt-2 text-2xl font-bold text-white">{{ number_format($totalMessages) }}</p>
+            </div>
+            <div class="rounded-2xl border border-slate-800 bg-[#111a2e] p-5">
+                <p class="text-xs uppercase tracking-wide text-slate-500">{{ __('finance.sms_pending_messages') }}</p>
+                <p class="mt-2 text-2xl font-bold text-amber-200">{{ number_format($pendingCount) }}</p>
+            </div>
+            <div class="rounded-2xl border border-slate-800 bg-[#111a2e] p-5">
+                <p class="text-xs uppercase tracking-wide text-slate-500">{{ __('finance.delivery_statuses.delivered') }}</p>
+                <p class="mt-2 text-2xl font-bold text-emerald-300">{{ number_format((int) ($deliveryCounts['delivered'] ?? 0)) }}</p>
+            </div>
+            <div class="rounded-2xl border border-slate-800 bg-[#111a2e] p-5">
+                <p class="text-xs uppercase tracking-wide text-slate-500">{{ __('finance.sms_statuses.failed') }}</p>
+                <p class="mt-2 text-2xl font-bold text-rose-300">{{ number_format($failedCount) }}</p>
+            </div>
+            <div class="rounded-2xl border border-slate-800 bg-[#111a2e] p-5">
+                <p class="text-xs uppercase tracking-wide text-slate-500">{{ __('finance.sms_failed_jobs') }}</p>
+                <p class="mt-2 text-2xl font-bold text-white">{{ $failedJobCount === null ? '—' : number_format((int) $failedJobCount) }}</p>
+            </div>
+        </div>
+
         @if (session('success'))
             <div role="status" class="rounded-xl border border-emerald-800 bg-emerald-950/50 px-5 py-4 text-sm text-emerald-300">{{ session('success') }}</div>
         @endif
@@ -45,6 +85,7 @@
                     <select name="type" class="w-full rounded-lg border-slate-700 bg-[#0b1120] text-sm text-slate-100">
                         <option value="">{{ __('finance.all_sms_types') }}</option>
                         <option value="financial_receipt" @selected(request('type') === 'financial_receipt')>{{ __('finance.financial_receipt') }}</option>
+                        <option value="sunday_offering" @selected(request('type') === 'sunday_offering')>{{ __('finance.sunday_offering') }}</option>
                         <option value="test_sms" @selected(request('type') === 'test_sms')>{{ __('finance.test_message') }}</option>
                     </select>
                 </label>
@@ -52,7 +93,7 @@
                     <span>{{ __('finance.status') }}</span>
                     <select name="status" class="w-full rounded-lg border-slate-700 bg-[#0b1120] text-sm text-slate-100">
                         <option value="">{{ __('finance.all_sms_statuses') }}</option>
-                        @foreach (['queued', 'sending', 'accepted', 'test_only', 'not_configured', 'no_phone', 'failed'] as $status)
+                        @foreach (['queued', 'sending', 'accepted', 'test_only', 'not_configured', 'no_phone', 'failed', 'cancelled'] as $status)
                             <option value="{{ $status }}" @selected(request('status') === $status)>{{ __('finance.sms_statuses.'.$status) }}</option>
                         @endforeach
                     </select>
@@ -61,7 +102,7 @@
                     <span>{{ __('finance.delivery_status') }}</span>
                     <select name="delivery_status" class="w-full rounded-lg border-slate-700 bg-[#0b1120] text-sm text-slate-100">
                         <option value="">{{ __('finance.all_delivery_statuses') }}</option>
-                        @foreach (['PENDING', 'DELIVERED', 'UNDELIVERED'] as $deliveryStatus)
+                        @foreach (['queued', 'processing', 'sent', 'delivered', 'failed', 'scheduled'] as $deliveryStatus)
                             <option value="{{ $deliveryStatus }}" @selected(request('delivery_status') === $deliveryStatus)>{{ __('finance.delivery_statuses.'.$deliveryStatus) }}</option>
                         @endforeach
                     </select>
@@ -98,7 +139,7 @@
                 <tbody class="divide-y divide-slate-800">
                     @forelse ($logs as $log)
                         <tr>
-                            <td class="px-5 py-4 text-slate-300">{{ __('finance.'.($log->notification_type === 'test_sms' ? 'test_message' : 'financial_receipt')) }}</td>
+                            <td class="px-5 py-4 text-slate-300">{{ __('finance.'.match ($log->notification_type) { 'test_sms' => 'test_message', 'bulk_campaign' => 'bulk_sms', 'sunday_offering' => 'sunday_offering', default => 'financial_receipt' }) }}</td>
                             <td class="px-5 py-4">
                                 @if ($log->transaction)
                                     <a class="font-semibold text-blue-300 hover:text-blue-200" href="{{ route('finance.transactions.show', $log->transaction) }}">{{ $log->transaction->transaction_number }}</a>
@@ -109,32 +150,30 @@
                             <td class="px-5 py-4 font-mono text-slate-300">{{ $log->maskedPhone() }}</td>
                             <td class="px-5 py-4 text-slate-300">{{ __('finance.sms_statuses.'.$log->status) }}</td>
                             <td class="px-5 py-4 text-slate-300">
-                                @if ($log->delivery_status)
-                                    {{ __('finance.delivery_statuses.'.$log->delivery_status) }}
-                                    @if ($log->delivery_checked_at)
-                                        <span class="mt-1 block text-xs text-slate-500">{{ $log->delivery_checked_at->format('Y-m-d H:i:s') }}</span>
-                                    @endif
-                                @else
-                                    <span class="text-slate-500">—</span>
+                                {{ $log->delivery_status ? __('finance.delivery_statuses.'.$log->delivery_status) : '—' }}
+                                @if ($log->provider_failure_reason)
+                                    <span class="block text-xs text-rose-300">{{ $log->provider_failure_reason }}</span>
                                 @endif
                             </td>
                             <td class="px-5 py-4 text-slate-300">{{ $log->attempts }}</td>
                             <td class="px-5 py-4 font-mono text-xs text-slate-400">{{ $log->provider_message_id ?? '—' }}</td>
                             <td class="space-y-2 px-5 py-4">
+                                @can('view SMS history')
+                                    @if ($log->provider === 'swalasms' && $log->provider_message_id && ! $log->isFinalDelivery())
+                                        <form method="POST" action="{{ route('finance.sms.refresh-status', $log) }}">
+                                            @csrf
+                                            <button type="submit" class="font-semibold text-slate-300 hover:text-white">{{ __('finance.refresh_status') }}</button>
+                                        </form>
+                                    @endif
+                                @endcan
                                 @can('retry failed SMS')
-                                    @if (in_array($log->status, ['failed', 'not_configured'], true))
+                                    @if (in_array($log->status, ['failed', 'not_configured'], true) || ($log->status === 'accepted' && $log->delivery_status === 'failed'))
                                         <form method="POST" action="{{ route('finance.sms.retry', $log) }}">
                                             @csrf
                                             <button type="submit" class="font-semibold text-blue-300 hover:text-blue-200">{{ __('finance.retry') }}</button>
                                         </form>
                                     @endif
                                 @endcan
-                                @if ($log->status === 'accepted' && ! $log->is_test && $log->accepted_at?->lte(now()->subMinutes(5)))
-                                    <form method="POST" action="{{ route('finance.sms.delivery-report', $log) }}">
-                                        @csrf
-                                        <button type="submit" class="font-semibold text-slate-300 hover:text-white">{{ __('finance.check_delivery') }}</button>
-                                    </form>
-                                @endif
                             </td>
                         </tr>
                         @if ($log->smsAttempts->isNotEmpty())

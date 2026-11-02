@@ -2,7 +2,8 @@
 
 namespace App\View\Components;
 
-use App\Models\Setting;
+use App\Services\AppSettings;
+use App\Services\NavigationMenu;
 use Illuminate\View\Component;
 use Illuminate\View\View;
 
@@ -15,9 +16,7 @@ class AppLayout extends Component
      */
     public function render(): View
     {
-        $settings = Setting::query()
-            ->whereIn('key', ['system_name', 'church_name'])
-            ->pluck('value', 'key');
+        $settings = app(AppSettings::class);
 
         $pageTitle = $this->title ?? match (true) {
             request()->routeIs('dashboard') => __('dashboard.title'),
@@ -33,6 +32,13 @@ class AppLayout extends Component
             request()->routeIs('groups.edit') => __('groups.edit_title'),
             request()->routeIs('groups.members.*') => __('groups.members_title'),
             request()->routeIs('groups.*') => __('groups.title'),
+            request()->routeIs('communities.create') => __('communities.create_title'),
+            request()->routeIs('communities.edit') => __('communities.edit_title'),
+            request()->routeIs('communities.show') => __('communities.details_title'),
+            request()->routeIs('communities.*') => __('communities.title'),
+            request()->routeIs('finance.sunday-offerings.create') => __('finance.record_sunday_offering'),
+            request()->routeIs('finance.sunday-offerings.show') => __('finance.sunday_offering_details'),
+            request()->routeIs('finance.sunday-offerings.*') => __('finance.sunday_offerings_title'),
             request()->routeIs('finance.categories.*') => __('finance.categories_title'),
             request()->routeIs('finance.campaigns.create') => __('finance.campaign_create_title'),
             request()->routeIs('finance.campaigns.edit') => __('finance.campaign_edit_title'),
@@ -55,9 +61,12 @@ class AppLayout extends Component
         };
 
         return view('layouts.app', [
-            'systemName' => $settings->get('system_name') ?: config('app.name', 'KKKT CMS'),
-            'churchName' => $settings->get('church_name'),
+            'systemName' => $settings->systemName(),
+            'churchName' => $settings->churchName(),
             'pageTitle' => $pageTitle,
+            'navigation' => request()->user()
+                ? app(NavigationMenu::class)->for(request()->user(), request())
+                : [],
         ]);
     }
 }

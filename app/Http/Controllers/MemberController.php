@@ -4,7 +4,9 @@ namespace App\Http\Controllers;
 
 use App\Http\Requests\StoreMemberRequest;
 use App\Http\Requests\UpdateMemberRequest;
+use App\Models\Community;
 use App\Models\Member;
+use App\Models\Setting;
 use App\Services\MembershipNumberGenerator;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\QueryException;
@@ -22,6 +24,7 @@ class MemberController extends Controller
     {
         $filters = $this->validatedFilters($request);
         $members = $this->filteredMembers($filters)
+            ->with('community:id,name,code')
             ->orderByDesc('id')
             ->paginate(15)
             ->withQueryString();
@@ -32,15 +35,18 @@ class MemberController extends Controller
             'totalMembers' => Member::query()->count(),
             'activeMembers' => Member::query()->where('status', 'active')->count(),
             'inactiveMembers' => Member::query()->where('status', 'inactive')->count(),
+            'communities' => Community::query()->orderBy('name')->get(['id', 'name', 'code']),
             'filters' => $filters,
         ]);
     }
 
-    public function create(MembershipNumberGenerator $membershipNumbers): View
+    public function create(Request $request, MembershipNumberGenerator $membershipNumbers): View
     {
         return view('members.create', [
             'member' => null,
             'membershipNumberPreview' => $membershipNumbers->preview(),
+            'selectedCommunity' => $this->selectedCommunity($request),
+            'systemLanguage' => Setting::getValue('system_language', config('app.locale', 'sw')),
         ]);
     }
 
@@ -52,6 +58,8 @@ class MemberController extends Controller
 
         try {
             DB::transaction(function () use ($validated, $membershipNumbers): void {
+                $this->lockCommunityForAssignment($validated['community_id'] ?? null);
+
                 Member::query()->create([
                     ...$validated,
                     'membership_number' => $membershipNumbers->generate(),
@@ -72,18 +80,38 @@ class MemberController extends Controller
             ->with('success', __('members.success_created'));
     }
 
-    public function edit(Member $member, MembershipNumberGenerator $membershipNumbers): View
-    {
+    public function edit(
+        Request $request,
+        Member $member,
+        MembershipNumberGenerator $membershipNumbers,
+    ): View {
+        $member->load('community:id,name,code,status');
+        $oldInput = $request->session()->getOldInput();
+
         return view('members.create', [
             'member' => $member,
             'membershipNumberPreview' => $membershipNumbers->preview(),
+            'selectedCommunity' => array_key_exists('community_id', $oldInput)
+                ? $this->selectedCommunity($request)
+                : $member->community,
+            'systemLanguage' => Setting::getValue('system_language', config('app.locale', 'sw')),
         ]);
     }
 
     public function update(UpdateMemberRequest $request, Member $member): RedirectResponse
     {
         try {
-            $member->update($request->validated());
+            DB::transaction(function () use ($member, $request): void {
+                $lockedMember = Member::query()->lockForUpdate()->findOrFail($member->id);
+                $communityId = $request->validated('community_id');
+
+                $this->lockCommunityForAssignment(
+                    $communityId,
+                    $lockedMember->community_id,
+                );
+
+                $lockedMember->update($request->validated());
+            });
         } catch (QueryException $exception) {
             if (! $this->isEnvelopeNumberConflict($exception)) {
                 throw $exception;
@@ -101,12 +129,14 @@ class MemberController extends Controller
 
     public function export(Request $request): StreamedResponse
     {
-        $members = $this->filteredMembers($this->validatedFilters($request));
+        $members = $this->filteredMembers($this->validatedFilters($request))
+            ->with('community:id,name');
         $headers = [
             'membership_number',
             'first_name',
             'middle_name',
             'last_name',
+            'community',
             'envelope_number',
             'gender',
             'phone',
@@ -130,6 +160,7 @@ class MemberController extends Controller
                     $member->first_name,
                     $member->middle_name,
                     $member->last_name,
+                    $member->community?->name,
                     $member->envelope_number,
                     $member->gender,
                     $member->phone,
@@ -154,23 +185,31 @@ class MemberController extends Controller
     }
 
     /**
-     * @return array{search: string|null, gender: string|null, status: string|null}
+     * @return array{search: string|null, gender: string|null, status: string|null, community_id: int|null}
      */
     private function validatedFilters(Request $request): array
     {
-        return array_merge([
+        $filters = array_merge([
             'search' => null,
             'gender' => null,
             'status' => null,
+            'community_id' => null,
         ], $request->validate([
             'search' => ['nullable', 'string', 'max:100'],
             'gender' => ['nullable', Rule::in(['Male', 'Female'])],
             'status' => ['nullable', Rule::in(['active', 'inactive'])],
+            'community_id' => ['nullable', 'integer', Rule::exists('communities', 'id')->whereNull('deleted_at')],
         ]));
+
+        $filters['community_id'] = $filters['community_id'] === null
+            ? null
+            : (int) $filters['community_id'];
+
+        return $filters;
     }
 
     /**
-     * @param  array{search: string|null, gender: string|null, status: string|null}  $filters
+     * @param  array{search: string|null, gender: string|null, status: string|null, community_id: int|null}  $filters
      */
     private function filteredMembers(array $filters): Builder
     {
@@ -186,7 +225,12 @@ class MemberController extends Controller
                         ->orWhere('middle_name', 'like', $like)
                         ->orWhere('last_name', 'like', $like)
                         ->orWhere('membership_number', 'like', $like)
-                        ->orWhere('envelope_number', 'like', $like);
+                        ->orWhere('envelope_number', 'like', $like)
+                        ->orWhere('phone', 'like', $like)
+                        ->orWhereHas('community', function (Builder $communityQuery) use ($like): void {
+                            $communityQuery->where('name', 'like', $like)
+                                ->orWhere('code', 'like', $like);
+                        });
                 });
             }
         }
@@ -199,7 +243,42 @@ class MemberController extends Controller
             ->when(
                 $filters['status'] !== null,
                 fn (Builder $query): Builder => $query->where('status', $filters['status']),
+            )
+            ->when(
+                $filters['community_id'] !== null,
+                fn (Builder $query): Builder => $query->where('community_id', $filters['community_id']),
             );
+    }
+
+    private function selectedCommunity(Request $request): ?Community
+    {
+        if (! $request->user()?->can('assign members to communities')) {
+            return null;
+        }
+
+        $communityId = (int) $request->old('community_id', $request->input('community_id', 0));
+
+        return $communityId > 0
+            ? Community::query()->find($communityId)
+            : null;
+    }
+
+    private function lockCommunityForAssignment(?int $communityId, ?int $existingCommunityId = null): void
+    {
+        if ($communityId === null) {
+            return;
+        }
+
+        $community = Community::query()
+            ->lockForUpdate()
+            ->find($communityId);
+
+        if ($community === null
+            || ($community->status !== 'active' && $community->id !== $existingCommunityId)) {
+            throw ValidationException::withMessages([
+                'community_id' => __('communities.inactive_assignment'),
+            ]);
+        }
     }
 
     private function safeCsvValue(string $value): string

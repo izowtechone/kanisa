@@ -39,8 +39,17 @@ class RoleSeeder extends Seeder
             'manage groups',
             'assign group members',
 
+            // Jumuiya communities
+            'view communities',
+            'create communities',
+            'edit communities',
+            'delete communities',
+            'assign members to communities',
+
             // Finance
             'view finances',
+            'view Sunday offerings',
+            'create Sunday offerings',
             'manage offerings',
             'manage tithes',
             'manage contributions',
@@ -60,6 +69,9 @@ class RoleSeeder extends Seeder
             'manage financial settings',
             'manage SMS settings',
             'send test SMS',
+            'view SMS campaigns',
+            'send bulk SMS',
+            'cancel SMS campaigns',
             'view SMS history',
             'retry failed SMS',
 
@@ -73,6 +85,9 @@ class RoleSeeder extends Seeder
             'edit users',
             'delete users',
             'manage roles',
+            'assign roles',
+            'manage permissions',
+            'deactivate users',
 
             // Settings
             'manage settings',
@@ -111,7 +126,9 @@ class RoleSeeder extends Seeder
             'export members',
             'view departments',
             'view groups',
+            'view communities',
             'view finances',
+            'view Sunday offerings',
             'view financial reports',
             'view events',
         ]);
@@ -132,14 +149,22 @@ class RoleSeeder extends Seeder
             'create groups',
             'edit groups',
             'assign group members',
+            'view communities',
+            'create communities',
+            'edit communities',
+            'assign members to communities',
             'view events',
             'manage events',
+            'view SMS campaigns',
+            'send bulk SMS',
         ]);
 
         // Mweka Hazina
         Role::findByName('Mweka Hazina', 'web')->givePermissionTo([
             'view dashboard',
             'view finances',
+            'view Sunday offerings',
+            'create Sunday offerings',
             'manage offerings',
             'manage tithes',
             'manage contributions',
@@ -167,6 +192,7 @@ class RoleSeeder extends Seeder
         Role::findByName('Mhasibu', 'web')->givePermissionTo([
             'view dashboard',
             'view finances',
+            'view Sunday offerings',
             'manage expenses',
             'record envelope offerings',
             'view financial reports',

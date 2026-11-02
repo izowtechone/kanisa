@@ -37,8 +37,9 @@ class PasswordResetLinkController extends Controller
             $request->only('email')
         );
 
-        return $status == Password::RESET_LINK_SENT
-                    ? back()->with('status', __($status))
+        // Unknown addresses receive the same response so the form cannot be used to discover accounts.
+        return in_array($status, [Password::RESET_LINK_SENT, Password::INVALID_USER], true)
+                    ? back()->with('status', __('passwords.sent'))
                     : back()->withInput($request->only('email'))
                         ->withErrors(['email' => __($status)]);
     }

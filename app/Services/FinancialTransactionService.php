@@ -27,17 +27,49 @@ class FinancialTransactionService
     /**
      * @param  array<string, mixed>  $attributes
      */
-    public function create(array $attributes, User $actor): FinancialTransaction
-    {
+    public function create(
+        array $attributes,
+        User $actor,
+        string $source = FinancialTransaction::SOURCE_FINANCE,
+    ): FinancialTransaction {
         $attributes['amount'] = $this->normalizeAmount((string) $attributes['amount']);
-        if (! in_array($attributes['type'], FinancialTransaction::TYPES, true)
-            || ! preg_match('/^(?=.*[1-9])\d{1,13}(?:\.\d{1,2})$/', $attributes['amount'])) {
+        if (! in_array($attributes['type'], FinancialTransaction::TYPES, true)) {
+            throw ValidationException::withMessages([
+                'type' => __('finance.transaction_type_invalid'),
+            ]);
+        }
+
+        if (! in_array($source, [
+            FinancialTransaction::SOURCE_FINANCE,
+            FinancialTransaction::SOURCE_SUNDAY_OFFERING,
+        ], true)) {
+            throw ValidationException::withMessages([
+                'source' => __('finance.transaction_source_invalid'),
+            ]);
+        }
+
+        if ($source === FinancialTransaction::SOURCE_SUNDAY_OFFERING
+            && $attributes['type'] !== 'offering') {
+            throw ValidationException::withMessages([
+                'type' => __('finance.sunday_offering_type_required'),
+            ]);
+        }
+
+        if ($source === FinancialTransaction::SOURCE_SUNDAY_OFFERING
+            && ! isset($attributes['member_id'])) {
+            throw ValidationException::withMessages([
+                'member_id' => __('finance.active_member_required'),
+            ]);
+        }
+
+        if (! preg_match('/^(?=.*[1-9])\d{1,13}(?:\.\d{1,2})$/', $attributes['amount'])) {
             throw ValidationException::withMessages([
                 'amount' => __('finance.import_error_amount'),
             ]);
         }
         $payloadHash = hash('sha256', json_encode([
             'type' => $attributes['type'],
+            'source' => $source,
             'category_id' => (int) $attributes['category_id'],
             'campaign_id' => isset($attributes['campaign_id']) ? (int) $attributes['campaign_id'] : null,
             'member_id' => isset($attributes['member_id']) ? (int) $attributes['member_id'] : null,
@@ -53,7 +85,7 @@ class FinancialTransactionService
         ], JSON_THROW_ON_ERROR));
 
         try {
-            return DB::transaction(function () use ($attributes, $actor, $payloadHash): FinancialTransaction {
+            return DB::transaction(function () use ($attributes, $actor, $payloadHash, $source): FinancialTransaction {
                 $existing = FinancialTransaction::query()
                     ->where('idempotency_key', $attributes['idempotency_key'])
                     ->first();
@@ -120,6 +152,7 @@ class FinancialTransactionService
 
                 $transaction = FinancialTransaction::query()->create([
                     ...$attributes,
+                    'source' => $source,
                     'transaction_number' => $this->numbers->next('transaction', $transactionDate, 'KKKT-TXN'),
                     'receipt_number' => $this->numbers->next(
                         'receipt',
@@ -134,6 +167,9 @@ class FinancialTransactionService
                         $member->middle_name,
                         $member->last_name,
                     ]))),
+                    'envelope_code' => $source === FinancialTransaction::SOURCE_SUNDAY_OFFERING
+                        ? $member?->envelope_number
+                        : ($attributes['envelope_code'] ?? null),
                     'currency' => FinancialSetting::getValue(
                         'currency',
                         Setting::getValue('currency', 'TZS'),
@@ -216,7 +252,11 @@ class FinancialTransactionService
             return $locked;
         });
 
-        $this->queueConfirmationSms($approved);
+        try {
+            $this->queueConfirmationSms($approved);
+        } catch (\Throwable $exception) {
+            report($exception);
+        }
 
         return $approved;
     }
@@ -255,6 +295,7 @@ class FinancialTransactionService
                 'idempotency_key' => (string) Str::uuid(),
                 'payload_hash' => hash('sha256', 'reversal:'.$original->id),
                 'type' => $original->type,
+                'source' => $original->source,
                 'category_id' => $original->category_id,
                 'campaign_id' => $original->campaign_id,
                 'member_id' => $original->member_id,
@@ -332,50 +373,59 @@ class FinancialTransactionService
             return;
         }
 
-        if (FinancialSetting::getValue('beem_enabled', '0') !== '1') {
+        if (! SmsSettings::enabled()) {
             return;
         }
 
         $automaticNotificationKey = match ($transaction->type) {
-            'offering', 'tithe' => 'beem_auto_offering',
-            'contribution' => 'beem_auto_contribution',
-            'other_income' => 'beem_auto_other_income',
+            'offering', 'tithe' => 'auto_offering',
+            'contribution' => 'auto_contribution',
+            'other_income' => 'auto_other_income',
             default => null,
         };
 
-        if ($automaticNotificationKey === null
-            || FinancialSetting::getValue($automaticNotificationKey, '0') !== '1') {
+        $isSundayOffering = $transaction->source === FinancialTransaction::SOURCE_SUNDAY_OFFERING;
+
+        if (! $isSundayOffering && ($automaticNotificationKey === null
+            || SmsSettings::shared($automaticNotificationKey, '0') !== '1')) {
             return;
         }
 
-        $phone = Member::query()->whereKey($transaction->member_id)->value('phone');
+        $member = Member::query()->find($transaction->member_id);
 
-        if (! is_string($phone) || trim($phone) === '') {
-            FinancialSmsLog::query()->create([
-                'financial_transaction_id' => $transaction->id,
-                'phone' => '',
-                'status' => 'no_phone',
-            ]);
-
+        if ($member === null) {
             return;
         }
 
-        $testMode = FinancialSetting::getValue('beem_test_mode', '1') === '1';
-        $hasCredentials = trim((string) FinancialSetting::getValue('beem_api_key')) !== ''
-            && trim((string) FinancialSetting::getValue('beem_api_secret')) !== ''
-            && trim((string) FinancialSetting::getValue('beem_sender_id')) !== '';
+        $phone = trim((string) $member->phone);
+
+        $testMode = SmsSettings::testMode();
+        $hasCredentials = SmsSettings::hasCredentials();
+        $notificationType = $isSundayOffering ? 'sunday_offering' : 'financial_receipt';
+        $status = $isSundayOffering && ! $member->sms_opt_in
+            ? 'cancelled'
+            : ($phone === ''
+                ? 'no_phone'
+                : ($testMode || $hasCredentials ? 'queued' : 'not_configured'));
 
         $log = FinancialSmsLog::query()->firstOrCreate([
             'financial_transaction_id' => $transaction->id,
-            'notification_type' => 'financial_receipt',
+            'notification_type' => $notificationType,
         ], [
+            'member_id' => $member->id,
+            'created_by' => $transaction->created_by,
             'phone' => $phone,
-            'message' => $this->smsMessages->forTransaction($transaction),
+            'message' => $isSundayOffering
+                ? $this->smsMessages->forSundayOffering($transaction, $member)
+                : $this->smsMessages->forTransaction($transaction),
             'is_test' => $testMode,
-            'status' => $testMode || $hasCredentials ? 'queued' : 'not_configured',
+            'status' => $status,
+            'error_message' => $isSundayOffering && ! $member->sms_opt_in
+                ? __('finance.sms_sunday_consent_required')
+                : null,
         ]);
 
-        if ($log->wasRecentlyCreated && ($testMode || $hasCredentials)) {
+        if ($log->wasRecentlyCreated && $log->status === 'queued' && ($testMode || $hasCredentials)) {
             try {
                 SendFinancialSms::dispatch($log->id);
             } catch (\Throwable) {

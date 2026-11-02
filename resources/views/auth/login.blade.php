@@ -1,47 +1,60 @@
 <x-guest-layout>
-    <!-- Session Status -->
-    <x-auth-session-status class="mb-4" :status="session('status')" />
+    <div class="mb-8">
+        <h1 class="text-3xl font-bold tracking-tight text-white">{{ __('auth_pages.welcome_heading') }}</h1>
+        <p class="mt-2 text-slate-400">{{ __('auth_pages.welcome_subheading') }}</p>
+    </div>
 
-    <form method="POST" action="{{ route('login') }}">
+    @if (session('status'))
+        <div class="alert-success mb-5" role="status">{{ session('status') }}</div>
+    @endif
+
+    <form method="POST" action="{{ route('login') }}" x-data="{ loading: false }" @submit="if (loading) { $event.preventDefault() } else { loading = true }" class="space-y-5" novalidate>
         @csrf
 
-        <!-- Email Address -->
         <div>
-            <x-input-label for="email" :value="__('Email')" />
-            <x-text-input id="email" class="block mt-1 w-full" type="email" name="email" :value="old('email')" required autofocus autocomplete="username" />
-            <x-input-error :messages="$errors->get('email')" class="mt-2" />
+            <label for="email" class="field-label">{{ __('auth_pages.email') }}<span class="text-red-400" aria-hidden="true"> *</span></label>
+            <input
+                id="email"
+                name="email"
+                type="email"
+                value="{{ old('email') }}"
+                class="field-input"
+                required
+                autofocus
+                autocomplete="username"
+                @if ($errors->has('email')) aria-invalid="true" aria-describedby="email-error" @endif
+            >
+            @error('email')
+                <p id="email-error" class="field-error" role="alert">{{ $message }}</p>
+            @enderror
         </div>
 
-        <!-- Password -->
-        <div class="mt-4">
-            <x-input-label for="password" :value="__('Password')" />
+        <x-password-field id="password" name="password" :label="__('auth_pages.password')"/>
 
-            <x-text-input id="password" class="block mt-1 w-full"
-                            type="password"
-                            name="password"
-                            required autocomplete="current-password" />
-
-            <x-input-error :messages="$errors->get('password')" class="mt-2" />
-        </div>
-
-        <!-- Remember Me -->
-        <div class="block mt-4">
-            <label for="remember_me" class="inline-flex items-center">
-                <input id="remember_me" type="checkbox" class="rounded dark:bg-gray-900 border-gray-300 dark:border-gray-700 text-indigo-600 shadow-sm focus:ring-indigo-500 dark:focus:ring-indigo-600 dark:focus:ring-offset-gray-800" name="remember">
-                <span class="ms-2 text-sm text-gray-600 dark:text-gray-400">{{ __('Remember me') }}</span>
+        <div class="flex items-center justify-between gap-4">
+            <label for="remember_me" class="inline-flex items-center gap-2 text-sm text-slate-300">
+                <input id="remember_me" type="checkbox" name="remember" class="rounded border-slate-600 bg-slate-900 text-blue-600 focus:ring-blue-500">
+                {{ __('auth_pages.remember_me') }}
             </label>
-        </div>
 
-        <div class="flex items-center justify-end mt-4">
             @if (Route::has('password.request'))
-                <a class="underline text-sm text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-100 rounded-md focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 dark:focus:ring-offset-gray-800" href="{{ route('password.request') }}">
-                    {{ __('Forgot your password?') }}
+                <a href="{{ route('password.request') }}" class="text-sm font-medium text-blue-400 hover:text-blue-300">
+                    {{ __('auth_pages.forgot_password') }}
                 </a>
             @endif
-
-            <x-primary-button class="ms-3">
-                {{ __('Log in') }}
-            </x-primary-button>
         </div>
+
+        <button type="submit" class="btn-primary w-full py-3" :disabled="loading">
+            <span x-show="! loading">{{ __('auth_pages.login') }}</span>
+            <span x-show="loading" x-cloak class="inline-flex items-center gap-2">
+                <svg class="h-4 w-4 animate-spin" viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" class="opacity-25"/><path d="M4 12a8 8 0 0 1 8-8" stroke="currentColor" stroke-width="4" stroke-linecap="round"/></svg>
+                {{ __('auth_pages.logging_in') }}
+            </span>
+        </button>
     </form>
+
+    <p class="mt-8 flex items-start gap-2 text-xs text-slate-500">
+        <x-icon name="lock" class="mt-0.5 h-4 w-4 shrink-0"/>
+        {{ __('auth_pages.secure_notice') }}
+    </p>
 </x-guest-layout>

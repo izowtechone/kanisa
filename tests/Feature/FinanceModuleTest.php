@@ -12,8 +12,8 @@ use App\Models\FinancialTransactionAudit;
 use App\Models\Member;
 use App\Models\Setting;
 use App\Models\User;
-use App\Services\BeemSmsGateway;
 use App\Services\MemberSpreadsheet;
+use App\Services\SwalaSmsService;
 use Illuminate\Http\Client\Request as HttpRequest;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Http;
@@ -76,20 +76,20 @@ function financeModuleEntryPayload(int $categoryId, array $overrides = []): arra
 function financeModuleSmsSettingsPayload(array $overrides = []): array
 {
     return array_merge([
-        'beem_enabled' => true,
-        'beem_test_mode' => false,
-        'beem_language' => 'sw',
-        'beem_sender_id' => 'KKKT',
-        'beem_api_key' => 'beem-live-key',
-        'beem_api_secret' => 'beem-live-secret',
-        'beem_auto_offering' => true,
-        'beem_auto_contribution' => true,
-        'beem_auto_other_income' => false,
-        'beem_low_credit_threshold' => '100',
-        'beem_template_offering_en' => __('finance.sms_template_offering', [], 'en'),
-        'beem_template_offering_sw' => __('finance.sms_template_offering', [], 'sw'),
-        'beem_template_contribution_en' => __('finance.sms_template_contribution', [], 'en'),
-        'beem_template_contribution_sw' => __('finance.sms_template_contribution', [], 'sw'),
+        'swala_enabled' => true,
+        'swala_test_mode' => false,
+        'sms_language' => 'sw',
+        'swala_sender_id' => 'KKKT',
+        'swala_api_key' => 'swl_live_abc123',
+        'sms_auto_offering' => true,
+        'sms_auto_contribution' => true,
+        'sms_auto_other_income' => false,
+        'sms_template_offering_en' => __('finance.sms_template_offering', [], 'en'),
+        'sms_template_offering_sw' => __('finance.sms_template_offering', [], 'sw'),
+        'sms_template_contribution_en' => __('finance.sms_template_contribution', [], 'en'),
+        'sms_template_contribution_sw' => __('finance.sms_template_contribution', [], 'sw'),
+        'sms_template_sunday_offering_en' => __('finance.sms_template_sunday_offering', [], 'en'),
+        'sms_template_sunday_offering_sw' => __('finance.sms_template_sunday_offering', [], 'sw'),
     ], $overrides);
 }
 
@@ -317,7 +317,7 @@ test('receipts are unavailable until an entry is approved and after it is revers
         ->assertNotFound();
 });
 
-test('Beem test mode records a test attempt without sending an SMS', function () {
+test('SwalaSMS test mode records a test attempt without sending an SMS', function () {
     $user = User::factory()->create();
     $category = financeModuleTestCategory($user);
     $transaction = FinancialTransaction::query()->create([
@@ -344,19 +344,19 @@ test('Beem test mode records a test attempt without sending an SMS', function ()
         'status' => 'queued',
     ]);
 
-    (new SendFinancialSms($smsLog->id))->handle(app(BeemSmsGateway::class));
+    (new SendFinancialSms($smsLog->id))->handle(app(SwalaSmsService::class));
 
     expect($smsLog->fresh()->status)->toBe('test_only')
         ->and(FinancialSmsAttempt::query()->firstOrFail()->status)->toBe('test_only');
 });
 
-test('financial settings encrypt Beem credentials at rest', function () {
-    FinancialSetting::setValue('beem_api_secret', 'sensitive-beem-secret');
+test('financial settings encrypt SwalaSMS credentials at rest', function () {
+    FinancialSetting::setValue('swala_webhook_secret', 'sensitive-swala-secret');
 
-    expect(FinancialSetting::getValue('beem_api_secret'))->toBe('sensitive-beem-secret');
+    expect(FinancialSetting::getValue('swala_webhook_secret'))->toBe('sensitive-swala-secret');
+
     $this->assertDatabaseMissing('financial_settings', [
-        'key' => 'beem_api_secret',
-        'value' => 'sensitive-beem-secret',
+        'value' => 'sensitive-swala-secret',
     ]);
 });
 
@@ -373,19 +373,17 @@ test('authorized SMS settings save encrypted credentials and reject unauthorized
         ->put(route('finance.sms.settings.update'), $payload)
         ->assertRedirect(route('settings.edit').'#sms-notifications');
 
-    expect(FinancialSetting::getValue('beem_api_key'))->toBe('beem-live-key')
-        ->and(FinancialSetting::getValue('beem_api_secret'))->toBe('beem-live-secret')
-        ->and(FinancialSetting::getValue('beem_test_mode'))->toBe('0')
-        ->and(FinancialSetting::getValue('beem_enabled'))->toBe('1')
-        ->and(FinancialSetting::getValue('beem_auto_offering'))->toBe('1');
+    expect(FinancialSetting::getValue('swala_api_key'))->toBe('swl_live_abc123')
+        ->and(FinancialSetting::getValue('swala_test_mode'))->toBe('0')
+        ->and(FinancialSetting::getValue('swala_enabled'))->toBe('1')
+        ->and(FinancialSetting::getValue('sms_auto_offering'))->toBe('1');
 
     $this->assertDatabaseMissing('financial_settings', [
-        'key' => 'beem_api_key',
-        'value' => 'beem-live-key',
+        'key' => 'swala_api_key',
+        'value' => 'swl_live_abc123',
     ]);
     $this->assertDatabaseMissing('financial_settings', [
-        'key' => 'beem_api_secret',
-        'value' => 'beem-live-secret',
+        'value' => 'swl_live_abc123',
     ]);
 });
 
@@ -409,17 +407,15 @@ test('authorized system settings store the church logo on the public disk', func
 
 test('SMS managers can use unified settings without viewing church settings or saved credentials', function () {
     $manager = financeModuleTestUser(['manage SMS settings', 'send test SMS']);
-    FinancialSetting::setValue('beem_api_key', 'private-api-key');
-    FinancialSetting::setValue('beem_api_secret', 'private-api-secret');
+    FinancialSetting::setValue('swala_api_key', 'swl_live_privatekey');
 
     $this->actingAs($manager)
         ->get(route('settings.edit'))
         ->assertOk()
         ->assertSee('sms-notifications')
-        ->assertSee('name="beem_api_key"', false)
+        ->assertSee('name="swala_api_key"', false)
         ->assertDontSee('name="church_short_name"', false)
-        ->assertDontSee('private-api-key')
-        ->assertDontSee('private-api-secret');
+        ->assertDontSee('swl_live_privatekey');
 
     $unauthorized = financeModuleTestUser(['view finances']);
     $this->actingAs($unauthorized)
@@ -429,35 +425,30 @@ test('SMS managers can use unified settings without viewing church settings or s
 
 test('SMS setting updates preserve blank credentials and reject unsupported template placeholders', function () {
     $manager = financeModuleTestUser(['manage SMS settings']);
-    FinancialSetting::setValue('beem_api_key', 'existing-api-key');
-    FinancialSetting::setValue('beem_api_secret', 'existing-api-secret');
+    FinancialSetting::setValue('swala_api_key', 'swl_live_existing');
 
     $this->actingAs($manager)
         ->put(route('finance.sms.settings.update'), financeModuleSmsSettingsPayload([
-            'beem_api_key' => '',
-            'beem_api_secret' => '',
+            'swala_api_key' => '',
         ]))
         ->assertRedirect(route('settings.edit').'#sms-notifications');
 
-    expect(FinancialSetting::getValue('beem_api_key'))->toBe('existing-api-key')
-        ->and(FinancialSetting::getValue('beem_api_secret'))->toBe('existing-api-secret');
+    expect(FinancialSetting::getValue('swala_api_key'))->toBe('swl_live_existing');
 
     $this->from(route('settings.edit'))
         ->put(route('finance.sms.settings.update'), financeModuleSmsSettingsPayload([
-            'beem_template_offering_en' => 'Unsupported value: {member_name}',
+            'sms_template_offering_en' => 'Unsupported value: {member_name}',
         ]))
-        ->assertSessionHasErrors('beem_template_offering_en')
-        ->assertSessionMissing('_old_input.beem_api_key')
-        ->assertSessionMissing('_old_input.beem_api_secret');
+        ->assertSessionHasErrors('sms_template_offering_en')
+        ->assertSessionMissing('_old_input.swala_api_key');
 });
 
-test('test SMS requires permission and records a safe test-only message without contacting Beem', function () {
+test('a confirmed test SMS requires live credentials and does not create a log when they are missing', function () {
     Http::preventStrayRequests();
-    Http::fake();
 
     $user = financeModuleTestUser(['send test SMS']);
-    FinancialSetting::setValue('beem_enabled', '1');
-    FinancialSetting::setValue('beem_test_mode', '1');
+    FinancialSetting::setValue('swala_enabled', '1');
+    FinancialSetting::setValue('swala_test_mode', '1');
 
     $this->actingAs($user)
         ->post(route('finance.sms.test'), [
@@ -467,19 +458,9 @@ test('test SMS requires permission and records a safe test-only message without 
             'confirmation' => '1',
         ])
         ->assertRedirect(route('settings.edit').'#sms-notifications')
-        ->assertSessionHas('success', __('finance.test_sms_recorded'));
+        ->assertSessionHasErrors('sms');
 
-    $log = FinancialSmsLog::query()->firstOrFail();
-    expect($log->status)->toBe('test_only')
-        ->and($log->notification_type)->toBe('test_sms')
-        ->and($log->phone)->toBe('255712345678')
-        ->and($log->created_by)->toBe($user->id)
-        ->and($log->message)->toContain('Tumepokea sadaka yako');
-
-    $this->assertDatabaseMissing('financial_sms_logs', [
-        'message' => $log->message,
-    ]);
-
+    $this->assertDatabaseCount('financial_sms_logs', 0);
     Http::assertNothingSent();
 
     $unauthorized = financeModuleTestUser(['manage SMS settings']);
@@ -498,11 +479,10 @@ test('live test SMS is queued only after the user confirms and credentials are c
     Http::preventStrayRequests();
 
     $user = financeModuleTestUser(['send test SMS']);
-    FinancialSetting::setValue('beem_enabled', '1');
-    FinancialSetting::setValue('beem_test_mode', '0');
-    FinancialSetting::setValue('beem_api_key', 'live-key');
-    FinancialSetting::setValue('beem_api_secret', 'live-secret');
-    FinancialSetting::setValue('beem_sender_id', 'KKKT');
+    FinancialSetting::setValue('swala_enabled', '1');
+    FinancialSetting::setValue('swala_test_mode', '0');
+    FinancialSetting::setValue('swala_api_key', 'swl_live_livekey');
+    FinancialSetting::setValue('swala_sender_id', 'KKKT');
 
     $this->actingAs($user)
         ->from(route('settings.edit'))
@@ -530,26 +510,18 @@ test('live test SMS is queued only after the user confirms and credentials are c
         ->assertSessionHasErrors('confirmation');
 });
 
-test('authorized Beem connection test saves only the returned balance and check time', function () {
+test('SMS settings show the webhook URL and never expose saved secrets', function () {
     Http::preventStrayRequests();
-    Http::fake([
-        'https://apisms.beem.africa/public/v1/vendors/balance' => Http::response([
-            'data' => ['credit_balance' => 42],
-        ]),
-    ]);
+    FinancialSetting::setValue('swala_webhook_secret', 'whsec_hidden_value');
 
     $manager = financeModuleTestUser(['manage SMS settings']);
-    FinancialSetting::setValue('beem_api_key', 'connection-key');
-    FinancialSetting::setValue('beem_api_secret', 'connection-secret');
-
     $this->actingAs($manager)
-        ->post(route('finance.sms.connection-test'))
-        ->assertRedirect(route('settings.edit').'#sms-notifications')
-        ->assertSessionHas('sms_connection', __('finance.beem_connection_success', ['balance' => 42]));
+        ->get(route('settings.edit'))
+        ->assertOk()
+        ->assertSee(route('webhooks.swalasms'))
+        ->assertDontSee('whsec_hidden_value');
 
-    expect(FinancialSetting::getValue('beem_last_balance'))->toBe('42')
-        ->and(FinancialSetting::getValue('beem_last_balance_checked_at'))->not->toBeNull();
-    Http::assertSent(fn (HttpRequest $request): bool => $request->url() === 'https://apisms.beem.africa/public/v1/vendors/balance');
+    Http::assertNothingSent();
 });
 
 test('approved financial entries queue encrypted notifications only when their category is enabled', function () {
@@ -559,9 +531,9 @@ test('approved financial entries queue encrypted notifications only when their c
     $approver = financeModuleTestUser(['approve financial transactions']);
     $member = financeModuleTestMember();
     $category = financeModuleTestCategory($creator);
-    FinancialSetting::setValue('beem_enabled', '1');
-    FinancialSetting::setValue('beem_test_mode', '1');
-    FinancialSetting::setValue('beem_auto_offering', '1');
+    FinancialSetting::setValue('swala_enabled', '1');
+    FinancialSetting::setValue('swala_test_mode', '1');
+    FinancialSetting::setValue('sms_auto_offering', '1');
 
     $this->actingAs($creator)
         ->post(route('finance.transactions.store', ['type' => 'offering']), financeModuleEntryPayload(
@@ -582,7 +554,7 @@ test('approved financial entries queue encrypted notifications only when their c
         ->and($smsLog->is_test)->toBeTrue();
     Queue::assertPushed(SendFinancialSms::class, fn (SendFinancialSms $job): bool => $job->smsLogId === $smsLog->id);
 
-    FinancialSetting::setValue('beem_auto_offering', '0');
+    FinancialSetting::setValue('sms_auto_offering', '0');
     $secondMember = financeModuleTestMember([
         'membership_number' => 'KKKT-FIN-0002',
         'envelope_number' => '00018',
@@ -607,21 +579,15 @@ test('approved financial entries queue encrypted notifications only when their c
     expect(FinancialSmsLog::query()->count())->toBe(1);
 });
 
-test('Beem SMS submission uses the configured endpoint and marks accepted submissions', function () {
+test('SwalaSMS SMS submission uses the configured endpoint and marks accepted submissions', function () {
     Http::preventStrayRequests();
     Http::fake([
-        'https://apisms.beem.africa/v1/send' => Http::response([
-            'successful' => true,
-            'code' => 100,
-            'valid' => 1,
-            'request_id' => 'beem-request-123',
-        ]),
+        'https://api.swalasms.com/v1/sms/messages' => Http::response(['success' => true, 'data' => ['uid' => 'swala-uid-123', 'recipient' => '+255712345678', 'sender_id' => 'KKKT', 'units' => 1, 'channel' => 'sms', 'status' => 'queued', 'idempotent_replay' => false]], 202),
     ]);
 
-    FinancialSetting::setValue('beem_api_key', 'beem-test-key');
-    FinancialSetting::setValue('beem_api_secret', 'beem-test-secret');
-    FinancialSetting::setValue('beem_sender_id', 'KKKT');
-    FinancialSetting::setValue('beem_test_mode', '0');
+    FinancialSetting::setValue('swala_api_key', 'swl_live_testkey');
+    FinancialSetting::setValue('swala_sender_id', 'KKKT');
+    FinancialSetting::setValue('swala_test_mode', '0');
 
     $user = User::factory()->create();
     $member = financeModuleTestMember();
@@ -650,12 +616,15 @@ test('Beem SMS submission uses the configured endpoint and marks accepted submis
         'status' => 'queued',
     ]);
 
-    (new SendFinancialSms($smsLog->id))->handle(app(BeemSmsGateway::class));
+    (new SendFinancialSms($smsLog->id))->handle(app(SwalaSmsService::class));
 
-    Http::assertSent(fn (HttpRequest $request): bool => $request->url() === 'https://apisms.beem.africa/v1/send'
-        && $request['recipients'][0]['dest_addr'] === '255712345678');
+    Http::assertSent(fn (HttpRequest $request): bool => $request->url() === 'https://api.swalasms.com/v1/sms/messages'
+        && $request->hasHeader('Authorization', 'Bearer swl_live_testkey')
+        && $request->hasHeader('Idempotency-Key')
+        && $request['recipient'] === '+255712345678'
+        && $request['sender_id'] === 'KKKT');
     expect($smsLog->fresh()->status)->toBe('accepted')
-        ->and($smsLog->fresh()->provider_message_id)->toBe('beem-request-123')
+        ->and($smsLog->fresh()->provider_message_id)->toBe('swala-uid-123')
         ->and(FinancialSmsAttempt::query()->firstOrFail()->status)->toBe('accepted');
 });
 
@@ -850,27 +819,16 @@ test('contributions are accepted on the inclusive campaign start and end dates',
         ->toBe('2026-11-02');
 });
 
-test('SMS history masks phone numbers and supports database filters and delivery reports', function () {
+test('SMS history masks phone numbers and supports database filters without claiming handset delivery', function () {
     Http::preventStrayRequests();
-    Http::fake([
-        'https://dlrapi.beem.africa/public/v1/delivery-reports*' => Http::response([
-            [
-                'dest_addr' => '255712345678',
-                'status' => 'DELIVERED',
-                'request_id' => 'beem-report-123',
-            ],
-        ]),
-    ]);
 
     $user = financeModuleTestUser(['view SMS history']);
-    FinancialSetting::setValue('beem_api_key', 'report-key');
-    FinancialSetting::setValue('beem_api_secret', 'report-secret');
     $acceptedLog = FinancialSmsLog::query()->create([
         'notification_type' => 'financial_receipt',
         'phone' => '0712345678',
         'status' => 'accepted',
         'is_test' => false,
-        'provider_message_id' => 'beem-report-123',
+        'provider_message_id' => 'swala-report-123',
         'accepted_at' => now()->subMinutes(6),
     ]);
     FinancialSmsLog::query()->create([
@@ -882,29 +840,19 @@ test('SMS history masks phone numbers and supports database filters and delivery
     ]);
 
     $this->actingAs($user)
-        ->get(route('finance.sms.index', ['type' => 'financial_receipt', 'search' => 'beem-report-123']))
+        ->get(route('finance.sms.index', [
+            'type' => 'financial_receipt',
+            'status' => 'accepted',
+            'search' => 'swala-report-123',
+        ]))
         ->assertOk()
         ->assertSee('071*****78')
         ->assertDontSee('0712345678')
-        ->assertSee($acceptedLog->provider_message_id);
+        ->assertSee($acceptedLog->provider_message_id)
+        ->assertSee(__('finance.sms_delivery_tracking_note'));
 
-    $this->post(route('finance.sms.delivery-report', $acceptedLog))
-        ->assertRedirect()
-        ->assertSessionHas('success', __('finance.delivery_status_updated', [
-            'status' => __('finance.delivery_statuses.DELIVERED'),
-        ]));
-
-    expect($acceptedLog->fresh()->delivery_status)->toBe('DELIVERED')
-        ->and($acceptedLog->fresh()->delivery_checked_at)->not->toBeNull();
-    Http::assertSent(fn (HttpRequest $request): bool => str_starts_with(
-        $request->url(),
-        'https://dlrapi.beem.africa/public/v1/delivery-reports',
-    ));
-
-    $acceptedLog->forceFill(['accepted_at' => now()->subMinutes(2)])->save();
-    $this->from(route('finance.sms.index'))
-        ->post(route('finance.sms.delivery-report', $acceptedLog))
-        ->assertSessionHasErrors('sms');
+    $this->post("/finance/sms/{$acceptedLog->id}/delivery-report")->assertNotFound();
+    Http::assertNothingSent();
 });
 
 test('finance permissions are enforced separately for reports receipts and SMS settings', function () {

@@ -1,5 +1,6 @@
 <?php
 
+use App\Models\Community;
 use App\Models\Member;
 use App\Models\MemberAuditLog;
 use App\Models\MemberImport;
@@ -77,6 +78,36 @@ test('member routes require permissions', function () {
     $this->actingAs(makeMembersTestUser(['view members']))
         ->get(route('members.import.create'))
         ->assertForbidden();
+});
+
+test('member pages load with no communities and existing members remain unassigned', function () {
+    Setting::setValue('church_short_name', 'DODOMA', 'general');
+    $member = Member::query()->create(membersTestAttributes());
+    $user = makeMembersTestUser([
+        'view members',
+        'create members',
+        'edit members',
+        'assign members to communities',
+    ]);
+
+    $this->actingAs($user)
+        ->get(route('members.index'))
+        ->assertOk()
+        ->assertViewHas('communities', fn ($communities): bool => $communities->isEmpty());
+
+    $this->get(route('members.create'))
+        ->assertOk()
+        ->assertSee('name="community_id"', false)
+        ->assertSee(__('members.search_community'))
+        ->assertViewHas('selectedCommunity', fn (?Community $selectedCommunity): bool => $selectedCommunity === null);
+
+    $this->get(route('members.edit', $member))
+        ->assertOk()
+        ->assertSee('name="community_id"', false)
+        ->assertSee(__('members.search_community'))
+        ->assertViewHas('selectedCommunity', fn (?Community $selectedCommunity): bool => $selectedCommunity === null);
+
+    expect($member->fresh()->community_id)->toBeNull();
 });
 
 test('members can be registered with persistent per-church sequences', function () {

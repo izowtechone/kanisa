@@ -2,6 +2,12 @@
 
 namespace App\Providers;
 
+use App\Services\AppSettings;
+use App\Services\BrandPalette;
+use Illuminate\Cache\RateLimiting\Limit;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\RateLimiter;
+use Illuminate\Support\Facades\View;
 use Illuminate\Support\ServiceProvider;
 
 class AppServiceProvider extends ServiceProvider
@@ -11,7 +17,7 @@ class AppServiceProvider extends ServiceProvider
      */
     public function register(): void
     {
-        //
+        $this->app->singleton(AppSettings::class);
     }
 
     /**
@@ -19,6 +25,22 @@ class AppServiceProvider extends ServiceProvider
      */
     public function boot(): void
     {
-        //
+        View::composer(['layouts.app', 'layouts.guest'], function ($view): void {
+            $settings = app(AppSettings::class);
+            $view->with([
+                'systemName' => $settings->systemName(),
+                'churchName' => $settings->churchName(),
+                'brandCss' => app(BrandPalette::class)->css($settings->primaryColor()),
+                'logoUrl' => $settings->logoUrl(),
+                'faviconUrl' => $settings->faviconUrl(),
+                'showSidebarLogo' => $settings->showLogoInSidebar(),
+            ]);
+        });
+
+        RateLimiter::for('swalasms', fn (): Limit => Limit::perMinute(
+            max(1, (int) config('services.swalasms.requests_per_minute', 30)),
+        )->by('swalasms'));
+
+        RateLimiter::for('swalasms-webhook', fn (Request $request): Limit => Limit::perMinute(120)->by($request->ip()));
     }
 }
