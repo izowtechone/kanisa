@@ -35,7 +35,7 @@ class FinancialTransactionController extends Controller
 
         $records = FinancialTransaction::query()
             ->with([
-                'category:id,name',
+                'category:id,name,name_en,name_sw',
                 'campaign:id,name',
                 'member:id,first_name,middle_name,last_name,membership_number',
             ])
@@ -84,7 +84,7 @@ class FinancialTransactionController extends Controller
                 ->where('type', $type)
                 ->where('is_active', true)
                 ->orderBy('name')
-                ->get(['id', 'name']),
+                ->get(['id', 'name', 'name_en', 'name_sw']),
             'campaigns' => $type === 'contribution'
                 ? FinancialCampaign::query()->where('status', 'active')->orderBy('name')->get(['id', 'name'])
                 : collect(),
@@ -114,7 +114,7 @@ class FinancialTransactionController extends Controller
     {
         return view('finance.transactions.show', [
             'transaction' => $transaction->load([
-                'category:id,name',
+                'category:id,name,name_en,name_sw',
                 'campaign:id,name',
                 'member:id,first_name,middle_name,last_name,membership_number',
                 'creator:id,name',
@@ -164,7 +164,7 @@ class FinancialTransactionController extends Controller
                 ->where('is_active', true)
                 ->orderBy('type')
                 ->orderBy('name')
-                ->get(['id', 'type', 'name']),
+                ->get(['id', 'type', 'name', 'name_en', 'name_sw']),
         ]);
     }
 

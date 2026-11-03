@@ -34,7 +34,7 @@ class FinanceController extends Controller
             'summary' => $this->reports->summary(['from' => $from, 'to' => $to]),
             'currency' => FinancialSetting::getValue('currency', Setting::getValue('currency', 'TZS')),
             'recentTransactions' => FinancialTransaction::query()
-                ->with(['category:id,name', 'member:id,first_name,middle_name,last_name,membership_number'])
+                ->with(['category:id,name,name_en,name_sw', 'member:id,first_name,middle_name,last_name,membership_number'])
                 ->orderByDesc('transaction_date')
                 ->orderByDesc('id')
                 ->limit(8)
@@ -43,9 +43,13 @@ class FinanceController extends Controller
         ]);
     }
 
-    public function categories(string $type): View
+    public function categories(string $type): View|RedirectResponse
     {
         $this->authorizeType($type);
+
+        if ($type === 'offering') {
+            return redirect()->route('finance.offering-categories.index');
+        }
 
         return view('finance.categories.index', [
             'type' => $type,
@@ -59,9 +63,13 @@ class FinanceController extends Controller
         ]);
     }
 
-    public function createCategory(string $type): View
+    public function createCategory(string $type): View|RedirectResponse
     {
         $this->authorizeType($type);
+
+        if ($type === 'offering') {
+            return redirect()->route('finance.offering-categories.create');
+        }
 
         return view('finance.categories.form', [
             'type' => $type,
@@ -72,6 +80,10 @@ class FinanceController extends Controller
     public function storeCategory(StoreFinanceCategoryRequest $request, string $type): RedirectResponse
     {
         $this->authorizeType($type);
+
+        if ($type === 'offering') {
+            return redirect()->route('finance.offering-categories.index');
+        }
 
         FinanceCategory::query()->create([
             ...$request->validated(),
@@ -84,10 +96,14 @@ class FinanceController extends Controller
             ->with('success', __('finance.category_created'));
     }
 
-    public function editCategory(string $type, FinanceCategory $category): View
+    public function editCategory(string $type, FinanceCategory $category): View|RedirectResponse
     {
         $this->authorizeType($type);
         $this->ensureCategoryType($category, $type);
+
+        if ($type === 'offering') {
+            return redirect()->route('finance.offering-categories.edit', $category);
+        }
 
         return view('finance.categories.form', compact('type', 'category'));
     }
@@ -99,6 +115,11 @@ class FinanceController extends Controller
     ): RedirectResponse {
         $this->authorizeType($type);
         $this->ensureCategoryType($category, $type);
+
+        if ($type === 'offering') {
+            return redirect()->route('finance.offering-categories.index');
+        }
+
         $category->update($request->validated());
 
         return redirect()
@@ -110,6 +131,11 @@ class FinanceController extends Controller
     {
         $this->authorizeType($type);
         $this->ensureCategoryType($category, $type);
+
+        if ($type === 'offering') {
+            return redirect()->route('finance.offering-categories.index');
+        }
+
         $category->update(['is_active' => ! $category->is_active]);
 
         return back()->with('success', __('finance.category_status_updated'));
@@ -123,7 +149,7 @@ class FinanceController extends Controller
             ...$this->reports->summary($filters),
             'currency' => FinancialSetting::getValue('currency', Setting::getValue('currency', 'TZS')),
             'filters' => $filters,
-            'categories' => FinanceCategory::query()->where('is_active', true)->orderBy('name')->get(['id', 'name', 'type']),
+            'categories' => FinanceCategory::query()->where('is_active', true)->orderBy('name')->get(['id', 'name', 'name_en', 'name_sw', 'type']),
             'campaigns' => FinancialCampaign::query()->orderBy('name')->get(['id', 'name', 'status']),
             'types' => FinancialTransaction::TYPES,
         ]);
@@ -134,7 +160,7 @@ class FinanceController extends Controller
         $filters = $this->reportFilters($request);
         $transactions = FinancialTransaction::query()
             ->with([
-                'category:id,name',
+                'category:id,name,name_en,name_sw',
                 'campaign:id,name',
                 'member:id,first_name,middle_name,last_name,membership_number',
             ])
@@ -173,7 +199,7 @@ class FinanceController extends Controller
                     $transaction->transaction_number,
                     $transaction->receipt_number,
                     __('finance.types.'.$transaction->type),
-                    $transaction->category?->name,
+                    $transaction->category?->localizedName(),
                     $transaction->campaign?->name,
                     $transaction->is_anonymous ? __('finance.anonymous') : $transaction->member_number,
                     $transaction->payee,

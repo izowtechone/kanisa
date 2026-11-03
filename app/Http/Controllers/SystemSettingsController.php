@@ -5,13 +5,17 @@ namespace App\Http\Controllers;
 use App\Http\Requests\SaveChurchSettingsRequest;
 use App\Models\FinancialSetting;
 use App\Models\Setting;
+use App\Services\AppSettings;
 use App\Services\FinancialSmsMessageBuilder;
 use App\Services\SmsSettings;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\View\View;
 use RuntimeException;
+use Throwable;
 
 class SystemSettingsController extends Controller
 {
@@ -23,11 +27,23 @@ class SystemSettingsController extends Controller
             403,
         );
 
+        $settings = app(AppSettings::class);
         $data = [
-            'churchShortName' => Setting::getValue('church_short_name', ''),
-            'communityCodePrefix' => Setting::getValue('community_code_prefix', 'JUM'),
-            'systemLanguage' => Setting::getValue('system_language', config('app.locale')),
-            'churchLogo' => Setting::getValue('church_logo', ''),
+            'systemName' => $settings->systemName(),
+            'systemLanguage' => $settings->locale(),
+            'timezone' => $settings->timezone(),
+            'currency' => $settings->currency(),
+            'dateFormat' => $settings->dateFormat(),
+            'timeFormat' => $settings->timeFormat(),
+            'communityCodePrefix' => $settings->get('community_code_prefix', 'JUM'),
+            'churchName' => $settings->churchName() ?? '',
+            'churchShortName' => $settings->get('church_short_name', ''),
+            'churchAddress' => $settings->churchAddress() ?? '',
+            'churchPhone' => $settings->churchPhone() ?? '',
+            'churchEmail' => $settings->churchEmail() ?? '',
+            'churchLogoUrl' => $settings->logoUrl(),
+            'churchFaviconUrl' => $settings->customFaviconUrl(),
+            'churchFaviconType' => $settings->faviconMimeType(),
             'canManageChurchSettings' => $user->can('manage settings'),
             'canManageSmsSettings' => $user->can('manage SMS settings'),
             'canSendTestSms' => $user->can('send test SMS'),
@@ -91,42 +107,125 @@ class SystemSettingsController extends Controller
     public function update(SaveChurchSettingsRequest $request): RedirectResponse
     {
         $validated = $request->validated();
-        $previousLogo = Setting::getValue('church_logo', '');
-        $newLogo = $previousLogo;
+        $section = $validated['section'];
+        $fileSetting = match ($section) {
+            'logo' => 'church_logo',
+            'favicon' => 'church_favicon',
+            'legacy' => $request->hasFile('church_logo') || $request->boolean('remove_church_logo')
+                ? 'church_logo'
+                : null,
+            default => null,
+        };
+        $directory = match ($fileSetting) {
+            'church_logo' => 'church-logos',
+            'church_favicon' => 'church-favicons',
+            default => null,
+        };
+        $previousFile = $fileSetting === null ? null : Setting::getValue($fileSetting);
+        $storedFile = null;
 
-        if ($request->hasFile('church_logo')) {
-            $storedLogo = $request->file('church_logo')->store('church-logos', 'public');
+        if ($fileSetting !== null && $request->hasFile($fileSetting)) {
+            $storedFile = $request->file($fileSetting)->store(
+                $directory ?? throw new RuntimeException('The church branding destination is not configured.'),
+                'public',
+            );
 
-            if (! is_string($storedLogo)) {
-                throw new RuntimeException('Unable to store the church logo.');
+            if (! is_string($storedFile)) {
+                throw new RuntimeException('Unable to store the church branding file.');
+            }
+        }
+
+        $removeFile = $fileSetting !== null
+            && $request->boolean($fileSetting === 'church_logo' ? 'remove_church_logo' : 'remove_church_favicon');
+
+        try {
+            DB::transaction(function () use ($validated, $section, $fileSetting, $storedFile, $removeFile): void {
+                if (in_array($section, ['general', 'legacy'], true)) {
+                    if ($section === 'general') {
+                        Setting::setValue('system_name', trim($validated['system_name']), 'general');
+                        Setting::setValue('timezone', $validated['timezone'], 'general');
+                        Setting::setValue('currency', $validated['currency'], 'general');
+                        Setting::setValue('date_format', $validated['date_format'], 'general');
+                        Setting::setValue('time_format', $validated['time_format'], 'general');
+                    }
+
+                    Setting::setValue('system_language', $validated['system_language'], 'general');
+
+                    if ($section === 'legacy') {
+                        Setting::setValue(
+                            'church_short_name',
+                            strtoupper(trim($validated['church_short_name'])),
+                            'general',
+                        );
+                    }
+
+                    if (isset($validated['community_code_prefix']) && trim($validated['community_code_prefix']) !== '') {
+                        Setting::setValue(
+                            'community_code_prefix',
+                            strtoupper(trim($validated['community_code_prefix'])),
+                            'general',
+                        );
+                    }
+                }
+
+                if ($section === 'church') {
+                    Setting::setValue('church_name', trim($validated['church_name']), 'church');
+                    Setting::setValue(
+                        'church_short_name',
+                        strtoupper(trim($validated['church_short_name'])),
+                        'general',
+                    );
+                    Setting::setValue('system_address', $validated['church_address'] ?? null, 'church');
+                    Setting::setValue('system_phone', $validated['church_phone'] ?? null, 'church');
+                    Setting::setValue('system_email', $validated['church_email'] ?? null, 'church');
+                }
+
+                if ($fileSetting !== null && ($storedFile !== null || $removeFile)) {
+                    Setting::setValue($fileSetting, $storedFile, 'branding');
+                }
+            });
+        } catch (Throwable $exception) {
+            if ($storedFile !== null) {
+                Storage::disk('public')->delete($storedFile);
             }
 
-            $newLogo = $storedLogo;
-        } elseif ($request->boolean('remove_church_logo')) {
-            $newLogo = null;
+            throw $exception;
         }
 
-        Setting::setValue(
-            'church_short_name',
-            strtoupper(trim($validated['church_short_name'])),
-            'general',
-        );
-        if (isset($validated['community_code_prefix']) && trim($validated['community_code_prefix']) !== '') {
-            Setting::setValue(
-                'community_code_prefix',
-                strtoupper(trim($validated['community_code_prefix'])),
-                'general',
-            );
-        }
-        Setting::setValue('system_language', $validated['system_language'], 'general');
-        Setting::setValue('church_logo', $newLogo, 'general');
-
-        if ($previousLogo !== '' && $previousLogo !== $newLogo && str_starts_with($previousLogo, 'church-logos/')) {
-            Storage::disk('public')->delete($previousLogo);
+        if ($previousFile !== null && $previousFile !== $storedFile && ($removeFile || $storedFile !== null)) {
+            $this->deleteManagedBrandingFile($previousFile, $directory);
         }
 
-        return redirect()
-            ->route('settings.edit')
-            ->with('success', __('members.settings_saved'));
+        app(AppSettings::class)->forget();
+
+        $redirect = route('settings.edit');
+
+        if ($section !== 'legacy') {
+            $anchor = match ($section) {
+                'general' => 'general-settings',
+                'church' => 'church-information',
+                'logo' => 'logo-settings',
+                'favicon' => 'favicon-settings',
+            };
+            $redirect .= '#'.$anchor;
+        }
+
+        return redirect($redirect)
+            ->with('success', __('settings.settings_saved'));
+    }
+
+    private function deleteManagedBrandingFile(?string $path, ?string $directory): void
+    {
+        $filePath = $path ?? '';
+
+        if ($directory === null || ! str_starts_with($filePath, $directory.'/') || str_contains($filePath, '..')) {
+            return;
+        }
+
+        if (! Storage::disk('public')->delete($filePath)) {
+            Log::warning('A replaced church branding file could not be removed.', [
+                'setting_path' => $directory,
+            ]);
+        }
     }
 }

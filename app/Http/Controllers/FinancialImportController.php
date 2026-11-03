@@ -51,7 +51,7 @@ class FinancialImportController extends Controller
                 ->where('is_active', true)
                 ->orderBy('type')
                 ->orderBy('name')
-                ->get(['id', 'type', 'name']),
+                ->get(['id', 'type', 'name', 'name_en', 'name_sw']),
         ]);
     }
 
@@ -165,7 +165,7 @@ class FinancialImportController extends Controller
         $this->authorizeOwner($financialImport);
 
         return view('finance.imports.show', [
-            'financialImport' => $financialImport->load('category:id,name,type'),
+            'financialImport' => $financialImport->load('category:id,name,name_en,name_sw,type'),
             'duplicateRows' => count(array_filter(
                 $financialImport->rows,
                 static fn (array $row): bool => $row['is_duplicate'],

@@ -65,6 +65,21 @@ class AppSettings
         return $this->get('church_name');
     }
 
+    public function churchAddress(): ?string
+    {
+        return $this->get('system_address');
+    }
+
+    public function churchPhone(): ?string
+    {
+        return $this->get('system_phone');
+    }
+
+    public function churchEmail(): ?string
+    {
+        return $this->get('system_email');
+    }
+
     public function primaryColor(): string
     {
         $color = $this->get('brand_primary_color');
@@ -84,9 +99,23 @@ class AppSettings
         return $this->publicFileUrl($this->get('church_logo'), 'church-logos/');
     }
 
-    public function faviconUrl(): ?string
+    public function faviconUrl(): string
+    {
+        return $this->customFaviconUrl() ?? asset('favicon.svg');
+    }
+
+    public function customFaviconUrl(): ?string
     {
         return $this->publicFileUrl($this->get('church_favicon'), 'church-favicons/');
+    }
+
+    public function faviconMimeType(): string
+    {
+        return match (strtolower(pathinfo($this->get('church_favicon', ''), PATHINFO_EXTENSION))) {
+            'ico' => 'image/x-icon',
+            'png' => 'image/png',
+            default => 'image/svg+xml',
+        };
     }
 
     public function showLogoInSidebar(): bool

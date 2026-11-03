@@ -21,7 +21,7 @@ class FinancialReportService
             ->first();
 
         $transactions = (clone $query)
-            ->with(['category:id,name', 'member:id,first_name,middle_name,last_name,membership_number'])
+            ->with(['category:id,name,name_en,name_sw', 'member:id,first_name,middle_name,last_name,membership_number'])
             ->orderBy('transaction_date')
             ->orderBy('id')
             ->paginate(25)
@@ -29,9 +29,9 @@ class FinancialReportService
 
         $byCategory = (clone $query)
             ->join('finance_categories', 'financial_transactions.category_id', '=', 'finance_categories.id')
-            ->selectRaw('finance_categories.id, finance_categories.name, financial_transactions.type')
+            ->selectRaw('finance_categories.id, finance_categories.name, finance_categories.name_en, finance_categories.name_sw, financial_transactions.type')
             ->selectRaw('SUM(financial_transactions.amount * financial_transactions.ledger_sign) as total')
-            ->groupBy('finance_categories.id', 'finance_categories.name', 'financial_transactions.type')
+            ->groupBy('finance_categories.id', 'finance_categories.name', 'finance_categories.name_en', 'finance_categories.name_sw', 'financial_transactions.type')
             ->orderBy('finance_categories.name')
             ->get();
 

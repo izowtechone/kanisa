@@ -130,7 +130,7 @@
                     <select name="category_id" required class="w-full rounded-lg border border-slate-700 bg-[#0b1120] px-4 py-3 text-slate-100">
                         <option value="">{{ __('finance.choose_category') }}</option>
                         @foreach ($categories as $category)
-                            <option value="{{ $category->id }}" @selected((string) old('category_id') === (string) $category->id)>{{ $category->name }}</option>
+                            <option value="{{ $category->id }}" @selected((string) old('category_id') === (string) $category->id)>{{ $category->localizedName() }}</option>
                         @endforeach
                     </select>
                     @error('category_id')<span class="text-xs text-rose-300">{{ $message }}</span>@enderror

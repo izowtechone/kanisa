@@ -7,7 +7,7 @@
             @foreach ([
                 ['finance.receipt_number', $transaction->receipt_number],
                 ['finance.type', __('finance.types.'.$transaction->type)],
-                ['finance.category', $transaction->category?->name ?? '—'],
+                ['finance.category', $transaction->category?->localizedName() ?? '—'],
                 ['finance.campaign', $transaction->campaign?->name ?? '—'],
                 ['finance.member', $transaction->is_anonymous ? __('finance.anonymous') : ($transaction->member_number ?? __('finance.unassigned_member'))],
                 ['finance.envelope_code', $transaction->envelope_code ?? '—'],

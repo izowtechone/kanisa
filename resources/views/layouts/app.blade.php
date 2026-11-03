@@ -8,7 +8,7 @@
         <title>{{ $pageTitle }} | {{ $systemName }}</title>
 
         @if ($faviconUrl)
-            <link rel="icon" href="{{ $faviconUrl }}">
+            <link rel="icon" href="{{ $faviconUrl }}" @if ($faviconType) type="{{ $faviconType }}" @endif>
         @endif
 
         <link rel="preconnect" href="https://fonts.bunny.net">

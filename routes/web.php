@@ -17,6 +17,7 @@ use App\Http\Controllers\LanguageController;
 use App\Http\Controllers\MemberController;
 use App\Http\Controllers\MemberImportController;
 use App\Http\Controllers\MemberLifecycleController;
+use App\Http\Controllers\OfferingCategoryController;
 use App\Http\Controllers\ProfileController;
 use App\Http\Controllers\SundayOfferingController;
 use App\Http\Controllers\SwalaSmsWebhookController;
@@ -307,6 +308,24 @@ Route::middleware(['auth', 'verified', EnsureUserIsActive::class])->group(functi
     Route::post('/finance/envelopes', [FinancialTransactionController::class, 'storeEnvelope'])
         ->middleware('can:view finances')
         ->name('finance.envelopes.store');
+
+    Route::get('/finance/offering-categories', [OfferingCategoryController::class, 'index'])
+        ->name('finance.offering-categories.index');
+
+    Route::get('/finance/offering-categories/create', [OfferingCategoryController::class, 'create'])
+        ->name('finance.offering-categories.create');
+
+    Route::post('/finance/offering-categories', [OfferingCategoryController::class, 'store'])
+        ->name('finance.offering-categories.store');
+
+    Route::get('/finance/offering-categories/{category}/edit', [OfferingCategoryController::class, 'edit'])
+        ->name('finance.offering-categories.edit');
+
+    Route::put('/finance/offering-categories/{category}', [OfferingCategoryController::class, 'update'])
+        ->name('finance.offering-categories.update');
+
+    Route::patch('/finance/offering-categories/{category}/toggle', [OfferingCategoryController::class, 'toggle'])
+        ->name('finance.offering-categories.toggle');
 
     Route::get('/finance/categories/{type}', [FinanceController::class, 'categories'])
         ->whereIn('type', ['offering', 'tithe', 'contribution', 'other_income', 'expense'])

@@ -298,9 +298,19 @@ test('receipts are unavailable until an entry is approved and after it is revers
     $this->actingAs($approver)
         ->post(route('finance.transactions.approve', $transaction))
         ->assertRedirect();
+
+    Setting::setValue('church_name', 'KKKT Usharika wa Dodoma', 'church');
+    Setting::setValue('system_address', 'Sokoine Road, Dodoma', 'church');
+    Setting::setValue('system_phone', '+255 26 232 1000', 'church');
+    Setting::setValue('system_email', 'office@example.org', 'church');
+
     $this->actingAs($receiptViewer)
         ->get(route('finance.receipts.show', $transaction->receipt_number))
-        ->assertOk();
+        ->assertOk()
+        ->assertSee('KKKT Usharika wa Dodoma')
+        ->assertSee('Sokoine Road, Dodoma')
+        ->assertSee('+255 26 232 1000')
+        ->assertSee('office@example.org');
 
     $this->actingAs($reverser)
         ->post(route('finance.transactions.reverse', $transaction), ['reason' => 'Entry was recorded in error'])

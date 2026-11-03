@@ -14,7 +14,7 @@
                     @forelse ($categories as $category)
                         <tr>
                             <td class="px-5 py-4 font-mono text-slate-300">{{ $category->code }}</td>
-                            <td class="px-5 py-4"><span class="font-semibold text-white">{{ $category->name }}</span>@if ($category->description)<span class="mt-1 block max-w-lg text-xs text-slate-400">{{ $category->description }}</span>@endif</td>
+                            <td class="px-5 py-4"><span class="font-semibold text-white">{{ $category->localizedName() }}</span>@if ($category->description)<span class="mt-1 block max-w-lg text-xs text-slate-400">{{ $category->description }}</span>@endif</td>
                             <td class="px-5 py-4"><span class="rounded-full border border-slate-700 px-2.5 py-1 text-xs text-slate-300">{{ $category->is_active ? __('finance.active') : __('finance.inactive') }}</span></td>
                             <td class="px-5 py-4 text-slate-300">{{ $category->transactions_count }}</td>
                             <td class="px-5 py-4"><div class="flex gap-3">

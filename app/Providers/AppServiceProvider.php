@@ -33,6 +33,7 @@ class AppServiceProvider extends ServiceProvider
                 'brandCss' => app(BrandPalette::class)->css($settings->primaryColor()),
                 'logoUrl' => $settings->logoUrl(),
                 'faviconUrl' => $settings->faviconUrl(),
+                'faviconType' => $settings->faviconMimeType(),
                 'showSidebarLogo' => $settings->showLogoInSidebar(),
             ]);
         });

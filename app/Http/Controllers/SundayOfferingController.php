@@ -39,7 +39,7 @@ class SundayOfferingController extends Controller
             ->where('source', FinancialTransaction::SOURCE_SUNDAY_OFFERING)
             ->where('type', 'offering')
             ->with([
-                'category:id,name',
+                'category:id,name,name_en,name_sw',
                 'member:id,membership_number,first_name,middle_name,last_name,community_id',
                 'member.community:id,name,code',
                 'smsLog:id,financial_transaction_id,status',
@@ -96,7 +96,7 @@ class SundayOfferingController extends Controller
                 ->where('type', 'offering')
                 ->where('is_active', true)
                 ->orderBy('name')
-                ->get(['id', 'name']),
+                ->get(['id', 'name', 'name_en', 'name_sw']),
             'idempotencyKey' => (string) Str::uuid(),
             'selectedMember' => $selectedMember,
             'currency' => FinancialSetting::getValue(
@@ -152,7 +152,7 @@ class SundayOfferingController extends Controller
         );
 
         $transaction->load([
-            'category:id,name',
+            'category:id,name,name_en,name_sw',
             'member:id,first_name,middle_name,last_name,membership_number',
             'member.community:id,name,code',
             'creator:id,name',

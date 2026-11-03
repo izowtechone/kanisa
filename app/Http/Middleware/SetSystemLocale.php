@@ -24,7 +24,12 @@ class SetSystemLocale
         App::setLocale($locale);
 
         $timezone = $this->settings->timezone();
-        config(['app.timezone' => $timezone]);
+        config([
+            'app.timezone' => $timezone,
+            'app.date_format' => $this->settings->dateFormat(),
+            'app.time_format' => $this->settings->timeFormat(),
+            'app.currency' => $this->settings->currency(),
+        ]);
         date_default_timezone_set($timezone);
 
         return $next($request);

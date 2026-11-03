@@ -55,7 +55,7 @@ class AppLayout extends Component
             request()->routeIs('finance.sms.*') => __('finance.sms_title'),
             request()->routeIs('finance.*') => __('finance.title'),
             request()->routeIs('receipts.verify') => __('finance.receipt_verification_title'),
-            request()->routeIs('settings.*') => __('members.settings_title'),
+            request()->routeIs('settings.*') => __('settings.title'),
             request()->routeIs('profile.*') => __('dashboard.profile'),
             default => config('app.name', 'KKKT CMS'),
         };

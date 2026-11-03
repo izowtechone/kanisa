@@ -3,7 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\FinancialTransaction;
-use App\Models\Setting;
+use App\Services\AppSettings;
 use Illuminate\Http\Request;
 use Illuminate\View\View;
 
@@ -35,14 +35,14 @@ class FinancialReceiptController extends Controller
         ]);
     }
 
-    public function show(string $receiptNumber): View
+    public function show(string $receiptNumber, AppSettings $settings): View
     {
         $transaction = FinancialTransaction::query()
             ->where('receipt_number', $receiptNumber)
             ->where('status', 'approved')
             ->with([
                 'member:id,first_name,middle_name,last_name,membership_number',
-                'category:id,name',
+                'category:id,name,name_en,name_sw',
                 'campaign:id,name',
                 'creator:id,name',
             ])
@@ -50,11 +50,11 @@ class FinancialReceiptController extends Controller
 
         return view('finance.receipts.show', [
             'transaction' => $transaction,
-            'churchName' => Setting::getValue('church_name', config('app.name')),
-            'churchAddress' => Setting::getValue('system_address', ''),
-            'churchPhone' => Setting::getValue('system_phone', ''),
-            'churchEmail' => Setting::getValue('system_email', ''),
-            'churchLogo' => Setting::getValue('church_logo', ''),
+            'churchName' => $settings->churchName() ?? config('app.name'),
+            'churchAddress' => $settings->churchAddress() ?? '',
+            'churchPhone' => $settings->churchPhone() ?? '',
+            'churchEmail' => $settings->churchEmail() ?? '',
+            'churchLogo' => $settings->get('church_logo', ''),
         ]);
     }
 

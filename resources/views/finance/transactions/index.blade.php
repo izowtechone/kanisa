@@ -23,7 +23,7 @@
                             <td class="whitespace-nowrap px-4 py-4"><a href="{{ route('finance.transactions.show', $transaction) }}" class="font-semibold text-blue-300 hover:text-blue-200">{{ $transaction->transaction_number }}</a><span class="mt-1 block text-xs text-slate-500">{{ $transaction->receipt_number }}</span></td>
                             <td class="px-4 py-4 text-slate-300">{{ __('finance.types.'.$transaction->type) }}</td>
                             <td class="px-4 py-4 text-slate-300">{{ $transaction->is_anonymous ? __('finance.anonymous') : ($transaction->member_number ?? __('finance.unassigned_member')) }}</td>
-                            <td class="px-4 py-4 text-slate-300">{{ $transaction->category?->name ?? '—' }}</td>
+                            <td class="px-4 py-4 text-slate-300">{{ $transaction->category?->localizedName() ?? '—' }}</td>
                             <td class="px-4 py-4 text-slate-300">{{ $transaction->campaign?->name ?? '—' }}</td>
                             <td class="whitespace-nowrap px-4 py-4 text-slate-300">{{ $transaction->transaction_date->format('Y-m-d') }}</td>
                             <td class="whitespace-nowrap px-4 py-4 font-medium text-slate-200">{{ app(\App\Services\FinancialAmountFormatter::class)->format($transaction->amount, $transaction->currency) }}</td>

@@ -12,6 +12,8 @@ class FinanceCategory extends Model
         'type',
         'code',
         'name',
+        'name_en',
+        'name_sw',
         'description',
         'is_active',
         'created_by',
@@ -32,5 +34,14 @@ class FinanceCategory extends Model
     public function creator(): BelongsTo
     {
         return $this->belongsTo(User::class, 'created_by');
+    }
+
+    public function localizedName(?string $locale = null): string
+    {
+        $name = $locale === 'sw' || ($locale === null && app()->getLocale() === 'sw')
+            ? $this->name_sw
+            : $this->name_en;
+
+        return filled($name) ? $name : (string) $this->name;
     }
 }

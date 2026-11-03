@@ -6,7 +6,7 @@
             @csrf
             <input type="hidden" name="idempotency_key" value="{{ old('idempotency_key', $idempotencyKey) }}">
             <div class="grid gap-5 sm:grid-cols-2">
-                <label class="space-y-2 text-sm text-slate-300"><span>{{ __('finance.category') }} <span class="text-rose-400">*</span></span><select required name="category_id" class="w-full rounded-lg border-slate-700 bg-[#0b1120] text-slate-100"><option value="">{{ __('finance.choose_category') }}</option>@foreach ($categories as $category)<option value="{{ $category->id }}" @selected((string) old('category_id') === (string) $category->id)>{{ $category->name }}</option>@endforeach</select>@error('category_id')<span class="text-xs text-rose-300">{{ $message }}</span>@enderror</label>
+                <label class="space-y-2 text-sm text-slate-300"><span>{{ __('finance.category') }} <span class="text-rose-400">*</span></span><select required name="category_id" class="w-full rounded-lg border-slate-700 bg-[#0b1120] text-slate-100"><option value="">{{ __('finance.choose_category') }}</option>@foreach ($categories as $category)<option value="{{ $category->id }}" @selected((string) old('category_id') === (string) $category->id)>{{ $category->localizedName() }}</option>@endforeach</select>@error('category_id')<span class="text-xs text-rose-300">{{ $message }}</span>@enderror</label>
                 @if ($type === 'contribution')
                     <label class="space-y-2 text-sm text-slate-300 sm:col-span-2">
                         <span>{{ __('finance.campaign') }} <span class="text-rose-400">*</span></span>

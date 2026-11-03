@@ -198,3 +198,32 @@ The requested CMS is not yet complete. The financial transaction, campaign, rece
 - Added tests/Feature/SettingsCacheTest.php.
 - Measured in-process against the real DB (1 member, 1 transaction, 4 SMS logs, so not representative of scale): dashboard ~75 ms, members ~70 ms, finance ~66 ms, SMS campaigns ~54 ms, settings page 33 queries. Assets: app.css 76.5 KB, app.js 54.5 KB (before gzip).
 - Known test note: MembersModuleTest "rejects invalid gender and future dates" fails only when the suite runs shortly after local midnight (UTC now()+1 day is still today in Africa/Dar_es_Salaam).
+
+### Phase 3 - Settings categories, church information, logo and favicon (complete)
+- Inspected `settings` migration and live schema: the existing table has a unique `key`, nullable `longText value`, `group` and timestamps. Existing keyed settings and uploaded assets are preserved; no migration was needed or added.
+- Reorganized System Settings into General, Church Information, Logo and Favicon sections with separate authorized forms and centralized Kiswahili/English labels. The existing SMS settings partial and route were left unchanged.
+- General preferences now save system name, default language, timezone, currency, date format, time format and community-code prefix. Locale/timezone middleware also publishes current date/time/currency preferences to app config.
+- Church name, short name, address, phone and email save to the existing keys consumed by member numbering, SMS templates and receipts. Receipt rendering now reads those values through `AppSettings`.
+- Logo uploads accept JPEG/PNG/WebP up to 2 MB; favicon uploads accept ICO/PNG up to 512 KB. Both use the public Laravel Storage disk, show the current asset, support replacement/removal, and delete only files from their managed directories. Existing `public/favicon.ico` was empty, so added a small local `public/favicon.svg` fallback; uploaded SVGs are not accepted.
+- Added `tests/Feature/SystemSettingsTest.php` for section rendering, authorization, general/church settings, logo upload/replacement/removal, favicon PNG/ICO/default behavior, bilingual labels, file type and size validation, conflicting actions, and safe file deletion. Finance receipt coverage now asserts the configured church name, address, phone and email on the rendered receipt.
+- Verification: focused settings/member/finance tests pass (57/57); Pint passes; `npm run build` succeeds. Full suite: 169 tests, 165 passed, 4 pre-existing failures (two registration cases, ExampleTest redirect expectation, and UserManagementTest navigation assertion); no skipped tests. No new migration, SMS gateway integration, real SMS or deployment.
+
+## Offering Categories Management (2026-11-03)
+
+- Reused the existing `finance_categories` table and `FinancialTransaction.category_id` relationship; no duplicate category table was added. The existing migration defines unique category codes/names per transaction type and a restrictive category foreign key, so existing transaction history remains attached and category deletion is not exposed.
+- Added an additive migration for nullable Kiswahili and English offering-category names and per-type unique indexes. Existing category names are retained as the fallback display value; no existing categories or transactions are rewritten. The migration was not applied to the configured database, as requested. Its rollback intentionally refuses to discard administrator-entered translations.
+- Added a bilingual offering-category administration page with search (debounced in the UI), status filtering, pagination, descriptions, transaction counts, create/edit, and activate/deactivate controls. Existing offering-category URLs now redirect to the bilingual manager.
+- Added granular view/create/edit/toggle permissions to `RoleSeeder` and retained compatibility with the existing `manage finance categories` permission. Existing records stay safe because referenced categories can be deactivated but not deleted.
+- Updated regular offerings, Sunday Offerings, envelope entry/import, receipts, transaction views, and financial reports to display the category name for the current system/session language. New transaction forms continue to select active database categories only; validation rejects inactive categories.
+- Added `tests/Feature/OfferingCategoriesTest.php` for create/edit, duplicate names/codes, search, permissions, legacy routes, bilingual UI, active-category selection/rejection, legacy-name fallback, escaped content, and transaction-history preservation.
+- Verification: focused offering/finance tests pass (43/43); full suite has 179 tests, 175 passed and the same 4 unrelated baseline failures (two registration tests, ExampleTest, and UserManagementTest navigation). Pint, `npm.cmd run build`, and `git diff --check` pass. Tests use the configured in-memory SQLite database; no migration was run against the application database.
+- Manual deployment step: apply the new additive migration and rerun `RoleSeeder` to persist the granular permission records. Legacy managers remain authorized through the existing permission until then.
+
+## Finance Categories Schema Mismatch Fix (2026-11-03)
+
+- Root cause: /finance queried finance_categories.name_en/name_sw, but migration 2026_11_03_051526_add_bilingual_names_to_finance_categories_table was still pending on church_management (it was intentionally not applied during the Offering Categories task).
+- Live table before fix had 9 columns (id, type, code, name, description, is_active, created_by, created_at, updated_at).
+- The additive migration was previewed with --pretend and applied (name_en, name_sw plus unique (type,name_en)/(type,name_sw)). It now backfills name_en from name for existing rows; name_sw stays empty and falls back to name. Existing category AHADI and the 2 transactions were preserved.
+- Added tests/Feature/FinanceCategorySchemaTest.php (schema, dashboard, per-category/type aggregation, EN/SW names, untranslated fallback, historical links).
+- Full suite: 185 tests, 181 passed, 4 known unrelated failures (RegistrationTest x2, ExampleTest, UserManagementTest navigation). Pint, npm run build and git diff --check pass; no pending migrations.
+- Granular offering-category permissions are not yet seeded in the live DB; controllers fall back to 'manage finance categories' until RoleSeeder is run.

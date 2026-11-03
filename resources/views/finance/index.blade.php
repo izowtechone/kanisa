@@ -83,11 +83,19 @@
             @endcan
             @can('manage finance categories')
                 @foreach ($types as $type)
-                    <a href="{{ route('finance.categories.index', $type) }}" class="rounded-2xl border border-slate-800 bg-[#111a2e] p-5 transition hover:border-blue-500/50 hover:bg-slate-800/60">
-                        <p class="font-semibold text-white">{{ __('finance.manage_categories') }} · {{ __('finance.types.'.$type) }}</p>
-                    </a>
+                    @if ($type !== 'offering')
+                        <a href="{{ route('finance.categories.index', $type) }}" class="rounded-2xl border border-slate-800 bg-[#111a2e] p-5 transition hover:border-blue-500/50 hover:bg-slate-800/60">
+                            <p class="font-semibold text-white">{{ __('finance.manage_categories') }} · {{ __('finance.types.'.$type) }}</p>
+                        </a>
+                    @endif
                 @endforeach
             @endcan
+            @canany(['view offering categories', 'manage finance categories'])
+                <a href="{{ route('finance.offering-categories.index') }}" class="rounded-2xl border border-slate-800 bg-[#111a2e] p-5 transition hover:border-blue-500/50 hover:bg-slate-800/60">
+                    <p class="font-semibold text-white">{{ __('finance.offering_categories_title') }}</p>
+                    <p class="mt-1 text-sm text-slate-400">{{ __('finance.offering_categories_description') }}</p>
+                </a>
+            @endcanany
             @can('manage financial settings')
                 <a href="{{ route('finance.sms.index') }}" class="rounded-2xl border border-slate-800 bg-[#111a2e] p-5 transition hover:border-blue-500/50 hover:bg-slate-800/60">
                     <p class="font-semibold text-white">{{ __('finance.manage_sms') }}</p><p class="mt-1 text-sm text-slate-400">{{ __('finance.sms_log_description') }}</p>

@@ -29,7 +29,7 @@
                 [__('finance.membership_number'), $transaction->member_number ?? '—'],
                 [__('finance.sunday_offering_community'), $transaction->member?->community?->name ?? '—'],
                 [__('finance.envelope_code'), $transaction->envelope_code ?? '—'],
-                [__('finance.category'), $transaction->category?->name ?? '—'],
+                [__('finance.category'), $transaction->category?->localizedName() ?? '—'],
                 [__('finance.transaction_date'), $transaction->transaction_date->format('Y-m-d')],
                 [__('finance.amount'), app(\App\Services\FinancialAmountFormatter::class)->format($transaction->amount, $transaction->currency)],
                 [__('finance.payment_method'), __('finance.payment_methods.'.$transaction->payment_method)],
