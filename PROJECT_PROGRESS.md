@@ -227,3 +227,14 @@ The requested CMS is not yet complete. The financial transaction, campaign, rece
 - Added tests/Feature/FinanceCategorySchemaTest.php (schema, dashboard, per-category/type aggregation, EN/SW names, untranslated fallback, historical links).
 - Full suite: 185 tests, 181 passed, 4 known unrelated failures (RegistrationTest x2, ExampleTest, UserManagementTest navigation). Pint, npm run build and git diff --check pass; no pending migrations.
 - Granular offering-category permissions are not yet seeded in the live DB; controllers fall back to 'manage finance categories' until RoleSeeder is run.
+
+## Offering Category Management UI Completion (2026-11-03)
+
+- Audit: reused the existing `finance_categories` table, `OfferingCategoryController`, `SaveOfferingCategoryRequest`, and the Sunday Offering/transaction forms and `FinancialReportService` (all already read the same table; only active categories are offered in new entry forms). No duplicate category system was created.
+- Added sidebar item Finance -> Offering Categories / Aina za Sadaka (visible with `view offering categories` or `manage finance categories`).
+- Index now lists Kiswahili name, English name, code, description, status, transaction count and actions; live debounced search and status filter retained.
+- Code is now optional: a unique `OFFERING-...` code is generated on create when blank; blank on edit keeps the existing code.
+- Added safe delete (`DELETE finance/offering-categories/{category}`, permission `delete offering categories`). Categories referenced by transactions or imports are not deleted; the admin is told to deactivate instead. No cascades.
+- Seeded new `delete offering categories` permission in RoleSeeder; rerun `RoleSeeder` to persist it (`manage finance categories` still grants access meanwhile).
+- Tests added in `tests/Feature/OfferingCategoriesTest.php` (generated code, delete safe/blocked, delete and sidebar permissions, Sunday Offering dropdown updates). Focused tests pass (47/47); full suite shows only the 4 known unrelated baseline failures. Pint, `npm.cmd run build` and `git diff --check` pass. No migration or destructive DB command was run.
+

@@ -130,7 +130,7 @@ it('shows searchable offering categories and requires view permission', function
         ->assertSee($category->code)
         ->assertSee('Sadaka ya Jumla')
         ->assertSee($category->description)
-        ->assertSee('Vikundi vya sadaka')
+        ->assertSee('Aina za Sadaka')
         ->assertDontSee('OFFERING-OTHER')
         ->assertDontSee(route('finance.offering-categories.create'));
 
@@ -336,4 +336,92 @@ it('escapes category names and descriptions in the management page', function ()
         ->assertSee('&lt;script&gt;alert(1)&lt;/script&gt;', false)
         ->assertSee('&lt;img src=x onerror=alert(1)&gt;', false)
         ->assertDontSee('<script>alert(1)</script>', false);
+});
+
+it('generates a code when none is given and keeps the code on edit', function () {
+    $user = offeringCategoriesTestUser(['create offering categories', 'edit offering categories']);
+
+    $this->actingAs($user)
+        ->post(route('finance.offering-categories.store'), offeringCategoriesTestPayload(['code' => '']))
+        ->assertSessionHasNoErrors();
+
+    $category = FinanceCategory::query()->where('name_en', 'Mission Offering')->firstOrFail();
+    expect($category->code)->toBe('OFFERING-MISSION-OFFERING');
+
+    $this->actingAs($user)
+        ->put(route('finance.offering-categories.update', $category), offeringCategoriesTestPayload(['code' => '', 'name_en' => 'Missions']))
+        ->assertSessionHasNoErrors();
+
+    expect($category->fresh()->code)->toBe('OFFERING-MISSION-OFFERING')
+        ->and($category->fresh()->name)->toBe('Missions');
+});
+
+it('deletes an unused category and blocks deleting a referenced one', function () {
+    $user = offeringCategoriesTestUser(['delete offering categories']);
+    $unused = offeringCategoriesTestCategory($user);
+    $used = offeringCategoriesTestCategory($user, [
+        'code' => 'OFFERING-USED',
+        'name' => 'Used',
+        'name_en' => 'Used',
+        'name_sw' => 'Imetumika',
+    ]);
+    $transaction = FinancialTransaction::query()->create([
+        'transaction_number' => 'KKKT-TXN-2026-009902',
+        'receipt_number' => 'KKKT-RCPT-2026-009902',
+        'idempotency_key' => (string) Str::uuid(),
+        'payload_hash' => hash('sha256', 'offering-category-delete'),
+        'type' => 'offering',
+        'category_id' => $used->id,
+        'created_by' => $user->id,
+        'amount' => '50.00',
+        'currency' => 'TZS',
+        'payment_method' => 'cash',
+        'status' => 'approved',
+        'transaction_date' => now()->toDateString(),
+    ]);
+
+    $this->actingAs($user)
+        ->delete(route('finance.offering-categories.destroy', $used))
+        ->assertSessionHas('error', __('finance.offering_category_delete_blocked'));
+    $this->assertModelExists($used);
+    $this->assertModelExists($transaction);
+
+    $this->actingAs($user)
+        ->delete(route('finance.offering-categories.destroy', $unused))
+        ->assertRedirect(route('finance.offering-categories.index'))
+        ->assertSessionHas('success', __('finance.offering_category_deleted'));
+    $this->assertModelMissing($unused);
+});
+
+it('denies deletion without permission and shows the sidebar link by permission', function () {
+    $viewer = offeringCategoriesTestUser(['view offering categories']);
+    $category = offeringCategoriesTestCategory($viewer);
+
+    $this->actingAs($viewer)
+        ->delete(route('finance.offering-categories.destroy', $category))
+        ->assertForbidden();
+    $this->assertModelExists($category);
+
+    $this->actingAs($viewer)
+        ->get(route('finance.offering-categories.index'))
+        ->assertSee(route('finance.offering-categories.index'), false);
+
+    $other = offeringCategoriesTestUser(['view finances']);
+    $this->actingAs($other)
+        ->get(route('finance.index'))
+        ->assertDontSee(route('finance.offering-categories.index'), false);
+});
+
+it('updates the Sunday Offering dropdown after category changes', function () {
+    $user = offeringCategoriesTestUser(['create Sunday offerings', 'toggle offering categories', 'create offering categories']);
+    $category = offeringCategoriesTestCategory($user);
+
+    $this->actingAs($user)->patch(route('finance.offering-categories.toggle', $category));
+    $this->actingAs($user)->post(route('finance.offering-categories.store'), offeringCategoriesTestPayload());
+
+    $this->actingAs($user)
+        ->get(route('finance.sunday-offerings.create'))
+        ->assertOk()
+        ->assertSee('Mission Offering')
+        ->assertDontSee('General Offering');
 });

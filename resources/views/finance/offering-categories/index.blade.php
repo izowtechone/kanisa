@@ -12,6 +12,10 @@
             @endcanany
         </div>
 
+        @if (session('error'))
+            <div role="alert" class="rounded-xl border border-red-800 bg-red-950/50 px-5 py-4 text-sm text-red-300">{{ session('error') }}</div>
+        @endif
+
         @if (session('success'))
             <div role="status" class="rounded-xl border border-emerald-800 bg-emerald-950/50 px-5 py-4 text-sm text-emerald-300">{{ session('success') }}</div>
         @endif
@@ -46,8 +50,10 @@
             <table class="min-w-full divide-y divide-slate-800 text-sm">
                 <thead class="text-left text-xs uppercase tracking-wide text-slate-500">
                     <tr>
+                        <th class="px-5 py-3">{{ __('finance.category_name_sw') }}</th>
+                        <th class="px-5 py-3">{{ __('finance.category_name_en') }}</th>
                         <th class="px-5 py-3">{{ __('finance.category_code') }}</th>
-                        <th class="px-5 py-3">{{ __('finance.category_name') }}</th>
+                        <th class="px-5 py-3">{{ __('finance.category_description') }}</th>
                         <th class="px-5 py-3">{{ __('finance.status') }}</th>
                         <th class="px-5 py-3">{{ __('finance.offering_category_transaction_count') }}</th>
                         <th class="px-5 py-3">{{ __('finance.actions') }}</th>
@@ -56,17 +62,10 @@
                 <tbody class="divide-y divide-slate-800">
                     @forelse ($categories as $category)
                         <tr>
+                            <td class="px-5 py-4 font-semibold text-white">{{ $category->name_sw ?: $category->name }}</td>
+                            <td class="px-5 py-4 text-slate-200">{{ $category->name_en ?: $category->name }}</td>
                             <td class="px-5 py-4 font-mono text-slate-300">{{ $category->code }}</td>
-                            <td class="px-5 py-4">
-                                <span class="font-semibold text-white">{{ $category->localizedName() }}</span>
-                                <span class="mt-1 block text-xs text-slate-400">
-                                    {{ app()->getLocale() === 'sw' ? __('finance.category_name_en') : __('finance.category_name_sw') }}:
-                                    {{ app()->getLocale() === 'sw' ? ($category->name_en ?: $category->name) : ($category->name_sw ?: $category->name) }}
-                                </span>
-                                @if ($category->description)
-                                    <span class="mt-1 block max-w-lg text-xs text-slate-400">{{ $category->description }}</span>
-                                @endif
-                            </td>
+                            <td class="max-w-xs px-5 py-4 text-xs text-slate-400">{{ $category->description }}</td>
                             <td class="px-5 py-4">
                                 <span class="rounded-full border border-slate-700 px-2.5 py-1 text-xs text-slate-300">
                                     {{ $category->is_active ? __('finance.active') : __('finance.inactive') }}
@@ -92,7 +91,7 @@
                         </tr>
                     @empty
                         <tr>
-                            <td colspan="5" class="px-5 py-10 text-center text-slate-400">{{ __('finance.offering_categories_empty') }}</td>
+                            <td colspan="7" class="px-5 py-10 text-center text-slate-400">{{ __('finance.offering_categories_empty') }}</td>
                         </tr>
                     @endforelse
                 </tbody>

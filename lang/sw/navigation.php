@@ -14,6 +14,7 @@ return [
     'groups' => 'Vikundi',
     'finance_overview' => 'Muhtasari wa Fedha',
     'sunday_offerings' => 'Sadaka za Jumapili',
+    'offering_categories' => 'Aina za Sadaka',
     'offerings_contributions' => 'Sadaka na Michango',
     'campaigns' => 'Kampeni za Michango',
     'other_income' => 'Mapato Mengine',

@@ -14,6 +14,7 @@ return [
     'groups' => 'Groups',
     'finance_overview' => 'Finance Overview',
     'sunday_offerings' => 'Sunday Offerings',
+    'offering_categories' => 'Offering Categories',
     'offerings_contributions' => 'Offerings and Contributions',
     'campaigns' => 'Contribution Campaigns',
     'other_income' => 'Other Income',

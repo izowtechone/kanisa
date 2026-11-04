@@ -118,6 +118,7 @@ class NavigationMenu
                 'items' => [
                     ['label' => 'navigation.finance_overview', 'route' => 'finance.index', 'icon' => 'wallet', 'active' => ['finance.index'], 'can' => ['view finances']],
                     ['label' => 'navigation.sunday_offerings', 'route' => 'finance.sunday-offerings.index', 'icon' => 'church', 'active' => ['finance.sunday-offerings.*'], 'can' => ['view Sunday offerings']],
+                    ['label' => 'navigation.offering_categories', 'route' => 'finance.offering-categories.index', 'icon' => 'sliders', 'active' => ['finance.offering-categories.*'], 'can' => ['view offering categories', 'manage finance categories']],
                     ['label' => 'navigation.offerings_contributions', 'route' => 'finance.transactions.index', 'icon' => 'hand-coins', 'active' => ['finance.transactions.*', 'finance.envelopes.*', 'finance.imports.*', 'finance.categories.*'], 'can' => ['view finances'], 'type_scope' => 'ledger'],
                     ['label' => 'navigation.campaigns', 'route' => 'finance.campaigns.index', 'icon' => 'megaphone', 'active' => ['finance.campaigns.*'], 'can' => ['manage contributions']],
                     ['label' => 'navigation.other_income', 'route' => 'finance.transactions.index', 'parameters' => ['type' => 'other_income'], 'icon' => 'trending-up', 'active' => ['finance.transactions.*', 'finance.categories.*'], 'can' => ['view finances'], 'type_scope' => 'other_income'],

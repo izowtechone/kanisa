@@ -24,7 +24,8 @@
             <div class="grid gap-5 sm:grid-cols-2">
                 <label class="space-y-2 text-sm text-slate-300">
                     <span>{{ __('finance.category_code') }}</span>
-                    <input required name="code" value="{{ old('code', $category->code) }}" maxlength="40" class="w-full rounded-lg border-slate-700 bg-[#0b1120] text-slate-100">
+                    <input name="code" value="{{ old('code', $category->code) }}" maxlength="40" class="w-full rounded-lg border-slate-700 bg-[#0b1120] text-slate-100">
+                    <span class="text-xs text-slate-500">{{ __('finance.offering_category_code_hint') }}</span>
                     @error('code')<span class="text-xs text-rose-300">{{ $message }}</span>@enderror
                 </label>
                 <label class="space-y-2 text-sm text-slate-300 sm:col-span-2">

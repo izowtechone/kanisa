@@ -4,9 +4,12 @@ namespace App\Http\Controllers;
 
 use App\Http\Requests\SaveOfferingCategoryRequest;
 use App\Models\FinanceCategory;
+use App\Models\FinancialImport;
+use Illuminate\Database\QueryException;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Str;
 use Illuminate\View\View;
 
 class OfferingCategoryController extends Controller
@@ -66,6 +69,7 @@ class OfferingCategoryController extends Controller
     {
         FinanceCategory::query()->create([
             ...$request->validated(),
+            'code' => $request->validated('code') ?? $this->generateCode($request->validated('name_en')),
             'type' => 'offering',
             'name' => $request->validated('name_en'),
             'created_by' => Auth::id(),
@@ -92,6 +96,7 @@ class OfferingCategoryController extends Controller
 
         $category->update([
             ...$request->validated(),
+            'code' => $request->validated('code') ?? $category->code,
             'name' => $request->validated('name_en'),
         ]);
 
@@ -108,6 +113,40 @@ class OfferingCategoryController extends Controller
         $category->update(['is_active' => ! $category->is_active]);
 
         return back()->with('success', __('finance.offering_category_status_updated'));
+    }
+
+    public function destroy(Request $request, FinanceCategory $category): RedirectResponse
+    {
+        $this->authorizePermission($request, 'delete offering categories');
+        abort_unless($category->type === 'offering', 404);
+
+        if ($category->transactions()->exists()
+            || FinancialImport::query()->where('category_id', $category->id)->exists()) {
+            return back()->with('error', __('finance.offering_category_delete_blocked'));
+        }
+
+        try {
+            $category->delete();
+        } catch (QueryException) {
+            return back()->with('error', __('finance.offering_category_delete_blocked'));
+        }
+
+        return redirect()
+            ->route('finance.offering-categories.index')
+            ->with('success', __('finance.offering_category_deleted'));
+    }
+
+    private function generateCode(string $name): string
+    {
+        $base = 'OFFERING-'.Str::upper(Str::limit(Str::slug($name), 28, ''));
+        $code = $base;
+        $suffix = 2;
+
+        while (FinanceCategory::query()->where('type', 'offering')->where('code', $code)->exists()) {
+            $code = $base.'-'.$suffix++;
+        }
+
+        return $code;
     }
 
     private function authorizePermission(Request $request, string $permission): void

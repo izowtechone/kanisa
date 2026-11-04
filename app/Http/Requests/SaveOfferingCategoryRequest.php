@@ -37,7 +37,7 @@ class SaveOfferingCategoryRequest extends FormRequest
 
         return [
             'code' => [
-                'required',
+                'nullable',
                 'string',
                 'max:40',
                 'regex:/^[A-Za-z0-9_-]+$/',
@@ -73,7 +73,7 @@ class SaveOfferingCategoryRequest extends FormRequest
     protected function prepareForValidation(): void
     {
         $this->merge([
-            'code' => trim((string) $this->input('code')),
+            'code' => $this->filled('code') ? trim((string) $this->input('code')) : null,
             'name_en' => trim((string) $this->input('name_en')),
             'name_sw' => trim((string) $this->input('name_sw')),
             'description' => $this->filled('description')

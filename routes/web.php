@@ -327,6 +327,9 @@ Route::middleware(['auth', 'verified', EnsureUserIsActive::class])->group(functi
     Route::patch('/finance/offering-categories/{category}/toggle', [OfferingCategoryController::class, 'toggle'])
         ->name('finance.offering-categories.toggle');
 
+    Route::delete('/finance/offering-categories/{category}', [OfferingCategoryController::class, 'destroy'])
+        ->name('finance.offering-categories.destroy');
+
     Route::get('/finance/categories/{type}', [FinanceController::class, 'categories'])
         ->whereIn('type', ['offering', 'tithe', 'contribution', 'other_income', 'expense'])
         ->middleware('can:view finances')
