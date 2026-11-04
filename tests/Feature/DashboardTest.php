@@ -6,6 +6,7 @@ use App\Models\Member;
 use App\Models\Setting;
 use App\Models\User;
 use Spatie\Permission\Models\Permission;
+use Spatie\Permission\Models\Role;
 
 function makeDashboardTestMember(array $overrides = []): Member
 {
@@ -102,6 +103,7 @@ test('implemented authenticated pages share the application navigation', functio
             ->map(fn (string $permission) => Permission::findOrCreate($permission, 'web'))
             ->all()
     );
+    $user->assignRole(Role::findOrCreate(User::SUPER_ADMIN_ROLE, 'web'));
 
     $this->actingAs($user);
 
@@ -240,10 +242,11 @@ test('Sunday Offering permission shows only its monthly aggregate and currency',
         });
 });
 
-test('sidebar highlights settings for users with settings permission', function () {
+test('sidebar highlights settings only for Super Admin users', function () {
     Setting::setValue('system_language', 'en');
     $user = User::factory()->create();
     $user->givePermissionTo(Permission::findOrCreate('manage settings', 'web'));
+    $user->assignRole(Role::findOrCreate(User::SUPER_ADMIN_ROLE, 'web'));
 
     $this->actingAs($user)
         ->get(route('settings.edit'))

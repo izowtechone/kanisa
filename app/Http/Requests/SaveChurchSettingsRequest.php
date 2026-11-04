@@ -11,7 +11,7 @@ class SaveChurchSettingsRequest extends FormRequest
 {
     public function authorize(): bool
     {
-        return $this->user()?->can('manage settings') ?? false;
+        return $this->user()?->isSuperAdmin() ?? false;
     }
 
     protected function prepareForValidation(): void

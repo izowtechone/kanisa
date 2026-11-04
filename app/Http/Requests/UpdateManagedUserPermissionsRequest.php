@@ -2,15 +2,17 @@
 
 namespace App\Http\Requests;
 
+use App\Models\User;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\Validator;
+use Spatie\Permission\Models\Permission;
 
 class UpdateManagedUserPermissionsRequest extends FormRequest
 {
     public function authorize(): bool
     {
-        return $this->user()?->can('manage permissions') ?? false;
+        return $this->user()?->isSuperAdmin() ?? false;
     }
 
     public function rules(): array
@@ -30,6 +32,13 @@ class UpdateManagedUserPermissionsRequest extends FormRequest
 
                 if (array_diff($requestedIds, $allowedIds) !== []) {
                     $validator->errors()->add('permission_ids', __('users.permission_escalation_denied'));
+                }
+
+                if (Permission::query()
+                    ->whereIn('id', $requestedIds)
+                    ->whereIn('name', User::USER_ADMIN_PERMISSIONS)
+                    ->exists()) {
+                    $validator->errors()->add('permission_ids', __('users.user_admin_permissions_denied'));
                 }
             },
         ];

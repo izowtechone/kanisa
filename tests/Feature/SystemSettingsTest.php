@@ -6,10 +6,17 @@ use App\Services\AppSettings;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Storage;
 use Spatie\Permission\Models\Permission;
+use Spatie\Permission\Models\Role;
 
-function systemSettingsTestUser(array $permissions = ['manage settings']): User
+function systemSettingsTestUser(?array $permissions = null): User
 {
     $user = User::factory()->create();
+
+    if ($permissions === null) {
+        $user->assignRole(Role::findOrCreate(User::SUPER_ADMIN_ROLE, 'web'));
+
+        return $user;
+    }
 
     foreach ($permissions as $permission) {
         $user->givePermissionTo(Permission::findOrCreate($permission, 'web'));
@@ -308,7 +315,7 @@ it('rejects logo and favicon files that exceed their size limits', function () {
     expect(Storage::disk('public')->allFiles())->toBe([]);
 });
 
-it('validates church contact details and protects settings updates by permission', function () {
+it('validates church contact details and protects settings updates by Super Admin role', function () {
     $administrator = systemSettingsTestUser();
     $unauthorized = systemSettingsTestUser(['view finances']);
 
@@ -332,4 +339,28 @@ it('validates church contact details and protects settings updates by permission
         ->assertForbidden();
 
     $this->assertDatabaseMissing('settings', ['key' => 'church_name', 'value' => 'Unauthorized update']);
+});
+
+it('denies users with settings permissions but without the Super Admin role on sensitive routes', function () {
+    $permissionOnly = systemSettingsTestUser([
+        'manage settings',
+        'manage SMS settings',
+        'manage financial settings',
+        'manage receipts',
+        'send test SMS',
+    ]);
+
+    $this->actingAs($permissionOnly)
+        ->get(route('settings.edit'))
+        ->assertForbidden();
+
+    $this->put(route('settings.update'))->assertForbidden();
+    $this->get(route('finance.settings.edit'))->assertForbidden();
+    $this->put(route('finance.settings.update'))->assertForbidden();
+    $this->get(route('finance.receipts.settings.edit'))->assertForbidden();
+    $this->put(route('finance.receipts.settings.update'))->assertForbidden();
+    $this->get(route('finance.sms.settings.edit'))->assertForbidden();
+    $this->put(route('finance.sms.settings.update'))->assertForbidden();
+    $this->post(route('finance.sms.settings.test-connection'))->assertForbidden();
+    $this->post(route('finance.sms.test'))->assertForbidden();
 });

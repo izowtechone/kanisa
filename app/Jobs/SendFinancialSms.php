@@ -6,6 +6,7 @@ use App\Models\BulkSmsCampaign;
 use App\Models\FinancialSmsAttempt;
 use App\Models\FinancialSmsLog;
 use App\Models\Member;
+use App\Models\User;
 use App\Services\FinancialSmsMessageBuilder;
 use App\Services\SwalaSmsException;
 use App\Services\SwalaSmsService;
@@ -61,7 +62,7 @@ class SendFinancialSms implements ShouldQueue
     public function handle(SwalaSmsService $gateway): void
     {
         $log = FinancialSmsLog::query()
-            ->with(['transaction', 'campaign'])
+            ->with(['transaction', 'campaign', 'user'])
             ->findOrFail($this->smsLogId);
 
         if ($log->status !== 'queued' || $log->campaign?->status === 'cancelled') {
@@ -111,6 +112,27 @@ class SendFinancialSms implements ShouldQueue
                     $lockedLog->forceFill([
                         'status' => 'cancelled',
                         'error_message' => __('finance.sms_sunday_recipient_no_longer_eligible'),
+                    ])->save();
+
+                    return null;
+                }
+            }
+
+            if ($lockedLog->notification_type === 'user_invitation') {
+                $user = User::query()->lockForUpdate()->find($lockedLog->user_id);
+
+                try {
+                    $currentPhone = $user === null ? null : $gateway->normalizePhone((string) $user->phone);
+                    $queuedPhone = $gateway->normalizePhone($lockedLog->phone);
+                } catch (\RuntimeException) {
+                    $currentPhone = null;
+                    $queuedPhone = null;
+                }
+
+                if ($currentPhone === null || $currentPhone !== $queuedPhone) {
+                    $lockedLog->forceFill([
+                        'status' => 'cancelled',
+                        'error_message' => __('users.invitation_superseded'),
                     ])->save();
 
                     return null;

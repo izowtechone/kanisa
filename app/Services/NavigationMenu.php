@@ -22,7 +22,7 @@ class NavigationMenu
             $items = [];
 
             foreach ($group['items'] as $item) {
-                if (! $this->allowed($user, $item['can'])) {
+                if (! $this->allowed($user, $item['can'], $item['role'] ?? null)) {
                     continue;
                 }
 
@@ -52,8 +52,12 @@ class NavigationMenu
     /**
      * @param  array<int, string>  $permissions
      */
-    private function allowed(User $user, array $permissions): bool
+    private function allowed(User $user, array $permissions, ?string $role): bool
     {
+        if ($role !== null && ! $user->hasRole($role)) {
+            return false;
+        }
+
         if ($permissions === []) {
             return true;
         }
@@ -125,18 +129,18 @@ class NavigationMenu
                     ['label' => 'navigation.expenses', 'route' => 'finance.transactions.index', 'parameters' => ['type' => 'expense'], 'icon' => 'trending-down', 'active' => ['finance.transactions.*', 'finance.categories.*'], 'can' => ['view finances'], 'type_scope' => 'expense'],
                     ['label' => 'navigation.receipts', 'route' => 'finance.receipts.index', 'icon' => 'receipt', 'active' => ['finance.receipts.index', 'finance.receipts.show'], 'can' => ['view receipts']],
                     ['label' => 'navigation.financial_reports', 'route' => 'finance.reports.index', 'icon' => 'bar-chart', 'active' => ['finance.reports.*'], 'can' => ['view financial reports']],
-                    ['label' => 'navigation.receipt_settings', 'route' => 'finance.receipts.settings.edit', 'icon' => 'sliders', 'active' => ['finance.receipts.settings.*'], 'can' => ['manage receipts']],
-                    ['label' => 'navigation.financial_settings', 'route' => 'finance.settings.edit', 'icon' => 'settings', 'active' => ['finance.settings.*'], 'can' => ['manage financial settings']],
+                    ['label' => 'navigation.receipt_settings', 'route' => 'finance.receipts.settings.edit', 'icon' => 'sliders', 'active' => ['finance.receipts.settings.*'], 'can' => [], 'role' => User::SUPER_ADMIN_ROLE],
+                    ['label' => 'navigation.financial_settings', 'route' => 'finance.settings.edit', 'icon' => 'settings', 'active' => ['finance.settings.*'], 'can' => [], 'role' => User::SUPER_ADMIN_ROLE],
                 ],
             ],
             [
                 'key' => 'administration',
                 'label' => 'navigation.group_administration',
                 'items' => [
-                    ['label' => 'navigation.users', 'route' => 'users.index', 'icon' => 'shield', 'active' => ['users.*'], 'can' => ['view users']],
+                    ['label' => 'users.navigation', 'route' => 'users.index', 'icon' => 'shield', 'active' => ['users.*'], 'can' => [], 'role' => User::SUPER_ADMIN_ROLE],
                     ['label' => 'navigation.sms_history', 'route' => 'finance.sms.index', 'icon' => 'message-square', 'active' => ['finance.sms.index'], 'can' => ['view SMS history']],
                     ['label' => 'navigation.sms_campaigns', 'route' => 'finance.sms.campaigns.index', 'icon' => 'megaphone', 'active' => ['finance.sms.campaigns.*'], 'can' => ['view SMS campaigns']],
-                    ['label' => 'navigation.system_settings', 'route' => 'settings.edit', 'icon' => 'settings', 'active' => ['settings.*', 'finance.sms.settings.*'], 'can' => ['manage settings', 'manage SMS settings']],
+                    ['label' => 'navigation.system_settings', 'route' => 'settings.edit', 'icon' => 'settings', 'active' => ['settings.*', 'finance.sms.settings.*'], 'can' => [], 'role' => User::SUPER_ADMIN_ROLE],
                 ],
             ],
         ];

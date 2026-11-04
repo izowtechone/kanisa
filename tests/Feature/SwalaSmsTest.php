@@ -15,6 +15,7 @@ use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Str;
 use Spatie\Permission\Models\Permission;
+use Spatie\Permission\Models\Role;
 
 function swalaTestConfigure(): void
 {
@@ -31,6 +32,14 @@ function swalaTestUser(array $permissions): User
     foreach ($permissions as $permission) {
         $user->givePermissionTo(Permission::findOrCreate($permission, 'web'));
     }
+
+    return $user;
+}
+
+function swalaTestSuperAdmin(array $permissions): User
+{
+    $user = swalaTestUser($permissions);
+    $user->assignRole(Role::findOrCreate(User::SUPER_ADMIN_ROLE, 'web'));
 
     return $user;
 }
@@ -281,7 +290,7 @@ it('records a failed delivery event and acknowledges unknown message ids', funct
 });
 
 it('stores the webhook secret and API key encrypted, masked and only for authorized users', function () {
-    $manager = swalaTestUser(['manage SMS settings']);
+    $manager = swalaTestSuperAdmin(['manage SMS settings']);
     $payload = [
         'swala_enabled' => '1', 'swala_test_mode' => '1', 'swala_sender_id' => 'KKKT',
         'swala_api_key' => 'swl_test_secretvalue', 'swala_webhook_secret' => 'whsec_plain_secret',
@@ -308,7 +317,7 @@ it('tests the connection through the documented balance endpoint only', function
     swalaTestConfigure();
     Http::preventStrayRequests();
     Http::fake(['https://api.swalasms.com/v1/balance' => Http::response(['success' => true, 'data' => ['balance' => 42, 'currency' => 'SMS', 'countries' => []]], 200)]);
-    $manager = swalaTestUser(['manage SMS settings']);
+    $manager = swalaTestSuperAdmin(['manage SMS settings']);
 
     $this->actingAs(swalaTestUser(['view finances']))->post(route('finance.sms.settings.test-connection'))->assertForbidden();
     $this->actingAs($manager)->post(route('finance.sms.settings.test-connection'))->assertRedirect();

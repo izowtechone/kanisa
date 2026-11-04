@@ -29,8 +29,9 @@
         </label>
         <label class="block space-y-2 text-sm text-slate-300">
             <span>{{ __('users.phone') }}</span>
-            <input type="tel" name="phone" value="{{ old('phone', $managedUser?->phone) }}" maxlength="30" autocomplete="tel" class="w-full rounded-lg border-slate-700 bg-[#0b1120] text-slate-100">
+            <input type="tel" name="phone" value="{{ old('phone', $managedUser?->phone) }}" maxlength="30" autocomplete="tel" @required(! $isEdit) class="w-full rounded-lg border-slate-700 bg-[#0b1120] text-slate-100">
             @error('phone')<span class="text-xs text-rose-300">{{ $message }}</span>@enderror
+            @unless ($isEdit)<span class="text-xs text-slate-500">{{ __('users.phone_required_for_invitation') }}</span>@endunless
         </label>
         <label class="block space-y-2 text-sm text-slate-300">
             <span>{{ __('users.member') }}</span>
@@ -57,21 +58,19 @@
         @endunless
     </div>
 
-    @can('assign roles')
+    @role('Super Admin')
         <label class="block space-y-2 text-sm text-slate-300">
             <span>{{ __('users.roles') }}</span>
-            <select name="role_ids[]" multiple size="5" class="w-full rounded-lg border-slate-700 bg-[#0b1120] text-slate-100">
+            <select name="role_ids[]" multiple size="5" @required(! $isEdit) class="w-full rounded-lg border-slate-700 bg-[#0b1120] text-slate-100">
                 @php($selectedRoleIds = old('role_ids', $managedUser?->roles?->pluck('id')->all() ?? []))
                 @foreach ($roles as $role)
-                    <option value="{{ $role->id }}" @selected(in_array($role->id, $selectedRoleIds))>{{ $role->name }}</option>
+                    <option value="{{ $role->id }}" @selected(in_array($role->id, $selectedRoleIds))>{{ $role->display_name }}</option>
                 @endforeach
             </select>
             <span class="text-xs text-slate-500">{{ __('users.roles_help') }}</span>
             @error('role_ids')<span class="text-xs text-rose-300">{{ $message }}</span>@enderror
         </label>
-    @else
-        <p class="rounded-lg border border-slate-800 bg-[#0b1120] p-4 text-sm text-slate-400">{{ __('users.no_roles_available') }}</p>
-    @endcan
+    @endrole
 
     <div class="flex flex-wrap justify-end gap-3 border-t border-slate-800 pt-5">
         <a href="{{ $isEdit ? route('users.show', $managedUser) : route('users.index') }}" class="rounded-lg border border-slate-700 px-5 py-3 text-sm text-slate-300 hover:bg-slate-800">{{ __('members.cancel') }}</a>

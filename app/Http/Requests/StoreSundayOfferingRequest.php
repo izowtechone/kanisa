@@ -5,7 +5,6 @@ namespace App\Http\Requests;
 use App\Models\FinanceCategory;
 use App\Models\Member;
 use Illuminate\Foundation\Http\FormRequest;
-use Illuminate\Validation\Rule;
 use Illuminate\Validation\Validator;
 
 class StoreSundayOfferingRequest extends FormRequest
@@ -22,9 +21,9 @@ class StoreSundayOfferingRequest extends FormRequest
             'member_id' => ['required', 'integer', 'exists:members,id'],
             'category_id' => ['required', 'integer', 'exists:finance_categories,id'],
             'amount' => ['required', 'string', 'regex:/^(?=.*[1-9])\d{1,13}(?:\.\d{1,2})?$/'],
-            'payment_method' => ['required', Rule::in(['cash', 'bank_transfer', 'mobile_money', 'cheque', 'other'])],
-            'transaction_date' => ['required', 'date_format:Y-m-d', 'before_or_equal:today'],
-            'reference_number' => ['nullable', 'string', 'max:100'],
+            'payment_method' => ['prohibited'],
+            'transaction_date' => ['prohibited'],
+            'reference_number' => ['prohibited'],
             'description' => ['nullable', 'string', 'max:500'],
         ];
     }

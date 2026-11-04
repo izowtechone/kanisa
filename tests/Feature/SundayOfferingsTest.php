@@ -6,9 +6,12 @@ use App\Models\FinanceCategory;
 use App\Models\FinancialSetting;
 use App\Models\FinancialSmsLog;
 use App\Models\FinancialTransaction;
+use App\Models\FinancialTransactionAudit;
 use App\Models\Member;
 use App\Models\Setting;
 use App\Models\User;
+use App\Services\SwalaSmsService;
+use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Str;
 use Spatie\Permission\Models\Permission;
@@ -61,8 +64,6 @@ function sundayOfferingTestPayload(FinanceCategory $category, Member $member): a
         'member_id' => $member->id,
         'category_id' => $category->id,
         'amount' => '125.00',
-        'payment_method' => 'cash',
-        'transaction_date' => now()->toDateString(),
         'description' => 'Sunday service offering',
     ];
 }
@@ -157,12 +158,11 @@ it('counts and lists Sunday Offerings without including ordinary offerings', fun
     $this->assertDatabaseCount('financial_transactions', 2);
 });
 
-it('records searchable pending offerings and queues consented SMS only after separate approval', function () {
+it('automatically approves Sunday Offerings and queues consented SMS after saving', function () {
     Setting::setValue('system_language', 'en');
     Setting::setValue('church_name', 'KKKT');
     FinancialSetting::setValue('swala_enabled', '1');
     $creator = sundayOfferingTestUser(['create Sunday offerings', 'view Sunday offerings']);
-    $approver = sundayOfferingTestUser(['approve financial transactions']);
     $category = sundayOfferingTestCategory($creator);
     $community = Community::factory()->create(['code' => 'JUM-401']);
     $member = sundayOfferingTestMember([
@@ -173,31 +173,27 @@ it('records searchable pending offerings and queues consented SMS only after sep
     Queue::fake([SendFinancialSms::class]);
 
     $this->actingAs($creator)
-        ->post(route('finance.sunday-offerings.store'), sundayOfferingTestPayload($category, $member))
-        ->assertRedirect();
+        ->post(route('finance.sunday-offerings.store'), [
+            ...sundayOfferingTestPayload($category, $member),
+            'status' => 'voided',
+            'approved_by' => null,
+        ])
+        ->assertRedirect(route('finance.sunday-offerings.create'))
+        ->assertSessionHas('sunday_offering_saved');
 
     $transaction = FinancialTransaction::query()->firstOrFail();
 
     expect($transaction->source)->toBe(FinancialTransaction::SOURCE_SUNDAY_OFFERING)
-        ->and($transaction->status)->toBe('pending')
+        ->and($transaction->status)->toBe('approved')
+        ->and($transaction->created_by)->toBe($creator->id)
+        ->and($transaction->approved_by)->toBe($creator->id)
+        ->and($transaction->approved_at)->not->toBeNull()
+        ->and($transaction->payment_method)->toBe('cash')
+        ->and($transaction->transaction_date->toDateString())->toBe(now()->toDateString())
+        ->and($transaction->reference_number)->toBeNull()
         ->and($transaction->member_number)->toBe($member->membership_number)
         ->and($transaction->envelope_code)->toBe('00017')
         ->and($transaction->member_name)->toBe('Neema Mushi');
-
-    Queue::assertNotPushed(SendFinancialSms::class);
-
-    $this->get(route('finance.sunday-offerings.index', [
-        'search' => '00017',
-        'status' => 'pending',
-    ]))
-        ->assertOk()
-        ->assertSee($transaction->receipt_number)
-        ->assertSee('Neema Mushi');
-
-    $this->actingAs($approver)
-        ->from(route('finance.sunday-offerings.show', $transaction))
-        ->post(route('finance.transactions.approve', $transaction))
-        ->assertRedirect();
 
     $smsLog = FinancialSmsLog::query()
         ->where('financial_transaction_id', $transaction->id)
@@ -205,19 +201,45 @@ it('records searchable pending offerings and queues consented SMS only after sep
         ->firstOrFail();
 
     expect($smsLog->status)->toBe('queued')
-        ->and($smsLog->message)->toContain('Habari Neema');
+        ->and($smsLog->phone)->toBe($member->phone)
+        ->and($smsLog->message)->toContain('Habari Neema')
+        ->and($smsLog->message)->toContain('imepokelewa')
+        ->and($smsLog->message)->toContain('125.00')
+        ->and($smsLog->message)->toContain('KKKT');
 
     Queue::assertPushed(
         SendFinancialSms::class,
         fn (SendFinancialSms $job): bool => $job->smsLogId === $smsLog->id,
     );
+
+    $this->get(route('finance.sunday-offerings.create'))
+        ->assertOk()
+        ->assertDontSee('value="125.00"')
+        ->assertDontSee('Neema Mushi');
+
+    $this->get(route('finance.sunday-offerings.index', [
+        'search' => '00017',
+        'status' => 'approved',
+    ]))
+        ->assertOk()
+        ->assertSee($transaction->receipt_number)
+        ->assertSee('Neema Mushi');
+
+    expect(FinancialTransactionAudit::query()
+        ->where('financial_transaction_id', $transaction->id)
+        ->where('action', 'approved')
+        ->where('user_id', $creator->id)
+        ->exists())->toBeTrue()
+        ->and($smsLog->status)->toBe('queued')
+        ->and($smsLog->message)->toContain('Habari Neema');
+
+    Queue::assertPushed(SendFinancialSms::class, 1);
 });
 
 it('does not queue Sunday Offering SMS for members without recorded consent', function () {
     Setting::setValue('system_language', 'en');
     FinancialSetting::setValue('swala_enabled', '1');
     $creator = sundayOfferingTestUser(['create Sunday offerings']);
-    $approver = sundayOfferingTestUser(['approve financial transactions']);
     $category = sundayOfferingTestCategory($creator);
     $member = sundayOfferingTestMember();
     Queue::fake([SendFinancialSms::class]);
@@ -227,10 +249,6 @@ it('does not queue Sunday Offering SMS for members without recorded consent', fu
         ->assertRedirect();
 
     $transaction = FinancialTransaction::query()->firstOrFail();
-
-    $this->actingAs($approver)
-        ->post(route('finance.transactions.approve', $transaction))
-        ->assertRedirect();
 
     $smsLog = FinancialSmsLog::query()
         ->where('financial_transaction_id', $transaction->id)
@@ -258,7 +276,152 @@ it('searches active members without losing envelope zeroes or exposing deleted m
         ->getJson(route('finance.sunday-offerings.members.search', ['search' => '00017']))
         ->assertOk()
         ->assertJsonPath('data.0.envelope_number', '00017')
-        ->assertJsonMissing(['name' => 'Deleted Mushi']);
+        ->assertJsonPath('data.0.id', $member->id)
+        ->assertJsonMissing(['name' => 'Deleted Mushi'])
+        ->assertJsonMissingPath('data.0.phone')
+        ->assertJsonMissingPath('data.0.community_name');
+
+    $this->getJson(route('finance.sunday-offerings.members.search', ['search' => '071234']))
+        ->assertOk()
+        ->assertJsonPath('data.0.id', $member->id);
+
+    $this->getJson(route('finance.sunday-offerings.members.search', ['search' => 'N']))
+        ->assertUnprocessable()
+        ->assertJsonValidationErrors('search');
 
     expect($member->fresh())->not->toBeNull();
+
+    $unauthorized = sundayOfferingTestUser(['view Sunday offerings']);
+    $this->actingAs($unauthorized)
+        ->getJson(route('finance.sunday-offerings.members.search', ['search' => '00017']))
+        ->assertForbidden();
+});
+
+it('omits payment, date, and reference fields and denies access without create permission', function () {
+    $user = sundayOfferingTestUser(['create Sunday offerings']);
+
+    $this->actingAs($user)
+        ->get(route('finance.sunday-offerings.create'))
+        ->assertOk()
+        ->assertDontSee('name="payment_method"', false)
+        ->assertDontSee('name="transaction_date"', false)
+        ->assertDontSee('name="reference_number"', false);
+
+    $unauthorized = sundayOfferingTestUser();
+    $this->actingAs($unauthorized)
+        ->get(route('finance.sunday-offerings.create'))
+        ->assertForbidden();
+});
+
+it('rejects client supplied payment method date and reference values', function () {
+    $user = sundayOfferingTestUser(['create Sunday offerings']);
+    $category = sundayOfferingTestCategory($user);
+    $member = sundayOfferingTestMember();
+
+    $this->actingAs($user)
+        ->from(route('finance.sunday-offerings.create'))
+        ->post(route('finance.sunday-offerings.store'), [
+            ...sundayOfferingTestPayload($category, $member),
+            'payment_method' => 'bank_transfer',
+            'transaction_date' => '2000-01-01',
+            'reference_number' => 'CLIENT-REFERENCE',
+        ])
+        ->assertSessionHasErrors(['payment_method', 'transaction_date', 'reference_number']);
+
+    $this->assertDatabaseCount('financial_transactions', 0);
+});
+
+it('uses the configured local date and preserves the generated creation timestamp', function () {
+    config(['app.timezone' => 'Africa/Dar_es_Salaam']);
+    $this->travelTo('2026-11-04 23:30:00');
+    $user = sundayOfferingTestUser(['create Sunday offerings']);
+    $category = sundayOfferingTestCategory($user);
+    $member = sundayOfferingTestMember();
+
+    $this->actingAs($user)
+        ->post(route('finance.sunday-offerings.store'), sundayOfferingTestPayload($category, $member))
+        ->assertRedirect(route('finance.sunday-offerings.create'));
+
+    $transaction = FinancialTransaction::query()->firstOrFail();
+
+    expect($transaction->transaction_date->toDateString())->toBe('2026-11-04')
+        ->and($transaction->created_at->timezone('Africa/Dar_es_Salaam')->format('Y-m-d H:i:s'))->toBe('2026-11-04 23:30:00');
+});
+
+it('keeps the transaction when SMS is not configured and reports the SMS failure', function () {
+    $user = sundayOfferingTestUser(['create Sunday offerings']);
+    $category = sundayOfferingTestCategory($user);
+    $member = sundayOfferingTestMember(['sms_opt_in' => true]);
+    FinancialSetting::setValue('swala_enabled', '1');
+    FinancialSetting::setValue('swala_test_mode', '0');
+    Queue::fake([SendFinancialSms::class]);
+
+    $this->actingAs($user)
+        ->post(route('finance.sunday-offerings.store'), sundayOfferingTestPayload($category, $member))
+        ->assertRedirect(route('finance.sunday-offerings.create'))
+        ->assertSessionHas('sunday_offering_sms_status', 'not_configured');
+
+    $transaction = FinancialTransaction::query()->firstOrFail();
+    $smsLog = FinancialSmsLog::query()->where('financial_transaction_id', $transaction->id)->firstOrFail();
+
+    expect($transaction->payment_method)->toBe('cash')
+        ->and($smsLog->status)->toBe('not_configured');
+    $this->assertDatabaseCount('financial_transactions', 1);
+    Queue::assertNotPushed(SendFinancialSms::class);
+});
+
+it('keeps a saved transaction when the SMS provider rejects the confirmation', function () {
+    $user = sundayOfferingTestUser(['create Sunday offerings']);
+    $category = sundayOfferingTestCategory($user);
+    $member = sundayOfferingTestMember(['sms_opt_in' => true]);
+    FinancialSetting::setValue('swala_enabled', '1');
+    FinancialSetting::setValue('swala_test_mode', '0');
+    FinancialSetting::setValue('swala_api_key', 'swl_live_feature_test_key');
+    FinancialSetting::setValue('swala_sender_id', 'KKKT');
+    Queue::fake([SendFinancialSms::class]);
+
+    $this->actingAs($user)
+        ->post(route('finance.sunday-offerings.store'), sundayOfferingTestPayload($category, $member))
+        ->assertRedirect(route('finance.sunday-offerings.create'))
+        ->assertSessionHas('sunday_offering_sms_status', 'queued');
+
+    $transaction = FinancialTransaction::query()->firstOrFail();
+    $smsLog = FinancialSmsLog::query()->where('financial_transaction_id', $transaction->id)->firstOrFail();
+    Http::preventStrayRequests();
+    Http::fake([
+        'https://api.swalasms.com/v1/sms/messages' => Http::response([
+            'success' => false,
+            'message' => 'Invalid recipient',
+            'error_code' => 'INVALID_RECIPIENT',
+            'acceptance_state' => 'DEFINITELY_NOT_ACCEPTED',
+        ], 422),
+    ]);
+
+    (new SendFinancialSms($smsLog->id))->handle(app(SwalaSmsService::class));
+
+    expect($smsLog->fresh()->status)->toBe('failed')
+        ->and($transaction->fresh()->amount)->toBe('125.00');
+    $this->assertDatabaseCount('financial_transactions', 1);
+});
+
+it('does not duplicate transactions or SMS when a successful submission is retried', function () {
+    $user = sundayOfferingTestUser(['create Sunday offerings']);
+    $category = sundayOfferingTestCategory($user);
+    $member = sundayOfferingTestMember(['sms_opt_in' => true]);
+    FinancialSetting::setValue('swala_enabled', '1');
+    Queue::fake([SendFinancialSms::class]);
+    $payload = sundayOfferingTestPayload($category, $member);
+
+    $this->actingAs($user)
+        ->post(route('finance.sunday-offerings.store'), $payload)
+        ->assertRedirect(route('finance.sunday-offerings.create'));
+    $this->post(route('finance.sunday-offerings.store'), $payload)
+        ->assertRedirect(route('finance.sunday-offerings.create'));
+
+    $transaction = FinancialTransaction::query()->firstOrFail();
+
+    $this->assertDatabaseCount('financial_transactions', 1);
+    $this->assertDatabaseCount('financial_sms_logs', 1);
+    Queue::assertPushed(SendFinancialSms::class, 1);
+    expect($transaction->smsLog->phone)->toBe($member->phone);
 });

@@ -22,10 +22,7 @@ class SystemSettingsController extends Controller
     public function edit(): View
     {
         $user = Auth::user();
-        abort_unless(
-            $user !== null && ($user->can('manage settings') || $user->can('manage SMS settings')),
-            403,
-        );
+        abort_unless($user?->isSuperAdmin(), 403);
 
         $settings = app(AppSettings::class);
         $data = [
@@ -44,9 +41,9 @@ class SystemSettingsController extends Controller
             'churchLogoUrl' => $settings->logoUrl(),
             'churchFaviconUrl' => $settings->customFaviconUrl(),
             'churchFaviconType' => $settings->faviconMimeType(),
-            'canManageChurchSettings' => $user->can('manage settings'),
-            'canManageSmsSettings' => $user->can('manage SMS settings'),
-            'canSendTestSms' => $user->can('send test SMS'),
+            'canManageChurchSettings' => true,
+            'canManageSmsSettings' => true,
+            'canSendTestSms' => true,
         ];
 
         if ($data['canManageSmsSettings']) {

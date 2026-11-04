@@ -5,9 +5,9 @@
                 <h2 class="text-3xl font-bold text-white">{{ __('users.title') }}</h2>
                 <p class="mt-2 text-sm text-slate-400">{{ __('users.description') }}</p>
             </div>
-            @can('create users')
+            @role('Super Admin')
                 <a href="{{ route('users.create') }}" class="rounded-xl bg-blue-600 px-5 py-3 text-sm font-semibold text-white transition hover:bg-blue-500">{{ __('users.create') }}</a>
-            @endcan
+            @endrole
         </div>
 
         @if (session('success'))
@@ -28,7 +28,7 @@
             <select id="user-role" name="role_id" class="rounded-lg border-slate-700 bg-[#0b1120] text-sm text-slate-100">
                 <option value="">{{ __('users.all_roles') }}</option>
                 @foreach ($roles as $role)
-                    <option value="{{ $role->id }}" @selected((string) ($filters['role_id'] ?? '') === (string) $role->id)>{{ $role->name }}</option>
+                    <option value="{{ $role->id }}" @selected((string) ($filters['role_id'] ?? '') === (string) $role->id)>{{ $role->display_name }}</option>
                 @endforeach
             </select>
             <button type="submit" class="rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white">{{ __('finance.filter') }}</button>
@@ -57,7 +57,7 @@
                                 <td class="px-5 py-4 font-semibold text-white">{{ $managedUser->name }}</td>
                                 <td class="px-5 py-4 text-slate-300">{{ $managedUser->email }}</td>
                                 <td class="px-5 py-4 text-slate-300">{{ $managedUser->phone ?: '—' }}</td>
-                                <td class="px-5 py-4 text-slate-300">{{ $managedUser->roles->pluck('name')->join(', ') ?: __('users.no_roles') }}</td>
+                                <td class="px-5 py-4 text-slate-300">{{ $managedUser->roles->pluck('display_name')->join(', ') ?: __('users.no_roles') }}</td>
                                 <td class="px-5 py-4 text-slate-300">{{ $managedUser->member?->membership_number ?? '—' }}</td>
                                 <td class="px-5 py-4 text-slate-300">{{ __('users.statuses.'.$managedUser->status) }}</td>
                                 <td class="px-5 py-4 text-slate-400">{{ $managedUser->last_login_at?->format('Y-m-d H:i') ?? __('users.never_logged_in') }}</td>

@@ -7,13 +7,13 @@ use App\Http\Requests\UpdateManagedUserPermissionsRequest;
 use App\Http\Requests\UpdateManagedUserRequest;
 use App\Models\Member;
 use App\Models\User;
-use Illuminate\Auth\Events\Registered;
+use App\Services\UserInvitationService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Password;
+use Illuminate\Support\Facades\Lang;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 use Illuminate\View\View;
@@ -22,6 +22,8 @@ use Spatie\Permission\Models\Role;
 
 class UserManagementController extends Controller
 {
+    public function __construct(private UserInvitationService $invitations) {}
+
     public function index(Request $request): View
     {
         $filters = $request->validate([
@@ -45,18 +47,23 @@ class UserManagementController extends Controller
             ->orderBy('id')
             ->paginate(25)
             ->withQueryString();
+        $users->getCollection()->each(fn (User $user) => $this->localizeRoles($user->roles));
 
         return view('users.index', [
             'users' => $users,
             'filters' => $filters,
-            'roles' => Role::query()->where('guard_name', 'web')->orderBy('name')->get(['id', 'name']),
+            'roles' => $this->localizeRoles(
+                Role::query()->where('guard_name', 'web')->orderBy('name')->get(['id', 'name']),
+            ),
         ]);
     }
 
     public function create(Request $request): View
     {
         return view('users.create', [
-            'roles' => $this->availableRoles($request->user()),
+            'roles' => $this->localizeRoles(
+                $this->availableRoles($request->user(), excludeAdministrativeRoles: true),
+            ),
             'members' => Member::query()
                 ->orderBy('last_name')
                 ->orderBy('first_name')
@@ -67,51 +74,56 @@ class UserManagementController extends Controller
     public function store(StoreManagedUserRequest $request): RedirectResponse
     {
         $validated = $request->validated();
-        $roles = collect();
-
-        if (! empty($validated['role_ids'])) {
-            abort_unless($request->user()->can('assign roles'), 403);
-            $roles = Role::query()
-                ->where('guard_name', 'web')
-                ->whereIn('id', $validated['role_ids'])
-                ->with('permissions')
-                ->get();
-            $this->authorizeRoleAssignment($request->user(), $roles);
-        }
+        $this->invitations->ensureReady();
+        $roles = Role::query()
+            ->where('guard_name', 'web')
+            ->whereIn('id', $validated['role_ids'])
+            ->with('permissions')
+            ->get();
+        $this->authorizeRoleAssignment($request->user(), $roles);
 
         $user = DB::transaction(function () use ($validated, $roles): User {
             $user = User::query()->create([
                 ...Arr::only($validated, ['name', 'email', 'phone', 'member_id', 'status']),
                 'password' => Str::random(64),
             ]);
+            $user->forceFill(['email_verified_at' => now()])->save();
 
-            if ($roles->isNotEmpty()) {
-                $user->syncRoles($roles);
-            }
+            $user->syncRoles($roles);
 
             return $user;
         });
 
-        event(new Registered($user));
-        $resetStatus = Password::sendResetLink(['email' => $user->email]);
-
-        if ($resetStatus !== Password::RESET_LINK_SENT) {
-            return redirect()->route('users.show', $user)
-                ->withErrors(['invitation' => __('users.invitation_not_sent')]);
-        }
+        $invitation = $this->invitations->send($user, $request->user());
 
         return redirect()->route('users.show', $user)
-            ->with('success', __('users.created_invitation_sent'));
+            ->with('success', __('users.created'))
+            ->with('invitation_status', $invitation->status);
     }
 
     public function show(User $managedUser): View
     {
+        $trackingAvailable = User::supportsInvitationTracking();
         $managedUser->load(['roles.permissions', 'member', 'permissions']);
+
+        if ($trackingAvailable) {
+            $managedUser->load('passwordResetInitiator');
+        }
+
+        $this->localizeRoles($managedUser->roles);
 
         return view('users.show', [
             'managedUser' => $managedUser,
+            'invitationTrackingAvailable' => $trackingAvailable,
+            'invitationLog' => $trackingAvailable
+                ? $managedUser->smsLogs()
+                    ->where('notification_type', 'user_invitation')
+                    ->orderByDesc('id')
+                    ->first()
+                : null,
             'permissions' => Permission::query()
                 ->where('guard_name', 'web')
+                ->whereNotIn('name', User::USER_ADMIN_PERMISSIONS)
                 ->orderBy('name')
                 ->get(['id', 'name']),
         ]);
@@ -120,10 +132,11 @@ class UserManagementController extends Controller
     public function edit(Request $request, User $managedUser): View
     {
         $managedUser->load(['roles', 'member']);
+        $this->localizeRoles($managedUser->roles);
 
         return view('users.edit', [
             'managedUser' => $managedUser,
-            'roles' => $this->availableRoles($request->user()),
+            'roles' => $this->localizeRoles($this->availableRoles($request->user())),
             'members' => Member::query()
                 ->orderBy('last_name')
                 ->orderBy('first_name')
@@ -137,23 +150,17 @@ class UserManagementController extends Controller
         $roles = null;
 
         if ($request->exists('role_ids')) {
-            abort_unless($request->user()->can('assign roles'), 403);
             $roles = Role::query()
                 ->where('guard_name', 'web')
                 ->whereIn('id', $validated['role_ids'] ?? [])
                 ->with('permissions')
                 ->get();
             $this->authorizeRoleAssignment($request->user(), $roles);
-            $this->protectLastActiveSuperAdmin($managedUser, 'active', $roles);
         }
 
-        $this->protectLastActiveSuperAdmin(
-            $managedUser,
-            $managedUser->status,
-            $roles,
-        );
-
         DB::transaction(function () use ($validated, $managedUser, $roles): void {
+            $managedUser = User::query()->lockForUpdate()->findOrFail($managedUser->id);
+            $this->protectLastActiveSuperAdmin($managedUser, $managedUser->status, $roles);
             $managedUser->fill(Arr::only($validated, ['name', 'email', 'phone', 'member_id']))->save();
 
             if ($roles !== null) {
@@ -171,23 +178,58 @@ class UserManagementController extends Controller
             'status' => ['required', 'in:active,inactive,suspended'],
         ]);
 
-        $this->protectLastActiveSuperAdmin($managedUser, $validated['status'], null);
-
-        $managedUser->forceFill(['status' => $validated['status']])->save();
+        DB::transaction(function () use ($managedUser, $validated): void {
+            $managedUser = User::query()->lockForUpdate()->findOrFail($managedUser->id);
+            $this->protectLastActiveSuperAdmin($managedUser, $validated['status'], null);
+            $managedUser->forceFill(['status' => $validated['status']])->save();
+        });
 
         return redirect()->route('users.show', $managedUser)
             ->with('success', __('users.status_updated'));
     }
 
-    public function sendPasswordReset(User $managedUser): RedirectResponse
+    public function sendPasswordReset(Request $request, User $managedUser): RedirectResponse
     {
-        $status = Password::sendResetLink(['email' => $managedUser->email]);
+        abort_if($managedUser->is($request->user()), 403);
 
-        if ($status !== Password::RESET_LINK_SENT) {
-            return back()->withErrors(['password_reset' => __('users.password_reset_not_sent')]);
-        }
+        $log = $this->invitations->send($managedUser, $request->user());
 
-        return back()->with('success', __('users.password_reset_sent'));
+        return redirect()->route('users.show', $managedUser)
+            ->with('success', __('users.password_reset_requested'))
+            ->with('invitation_status', $log->status);
+    }
+
+    public function retryInvitation(Request $request, User $managedUser): RedirectResponse
+    {
+        abort_if($managedUser->is($request->user()), 403);
+        $this->invitations->ensureReady();
+
+        $latestLog = $managedUser->smsLogs()
+            ->where('notification_type', 'user_invitation')
+            ->orderByDesc('id')
+            ->first();
+
+        abort_unless($latestLog !== null
+            && in_array($latestLog->status, ['failed', 'not_configured', 'no_phone'], true), 409);
+
+        $log = $this->invitations->send($managedUser, $request->user());
+
+        return redirect()->route('users.show', $managedUser)
+            ->with('success', __('users.invitation_retry_requested'))
+            ->with('invitation_status', $log->status);
+    }
+
+    public function destroy(Request $request, User $managedUser): RedirectResponse
+    {
+        abort_if($managedUser->is($request->user()), 403);
+
+        DB::transaction(function () use ($managedUser): void {
+            $managedUser = User::query()->lockForUpdate()->findOrFail($managedUser->id);
+            $this->protectLastActiveSuperAdmin($managedUser, 'inactive', null);
+            $managedUser->delete();
+        });
+
+        return redirect()->route('users.index')->with('success', __('users.deleted'));
     }
 
     public function updatePermissions(
@@ -209,9 +251,9 @@ class UserManagementController extends Controller
     /**
      * @return Collection<int, Role>
      */
-    private function availableRoles(User $actor): Collection
+    private function availableRoles(User $actor, bool $excludeAdministrativeRoles = false): Collection
     {
-        if (! $actor->can('assign roles')) {
+        if (! $actor->isSuperAdmin()) {
             return collect();
         }
 
@@ -221,16 +263,14 @@ class UserManagementController extends Controller
             ->orderBy('name')
             ->get();
 
-        if ($actor->hasRole(User::SUPER_ADMIN_ROLE)) {
-            return $roles;
+        if ($excludeAdministrativeRoles) {
+            return $roles
+                ->reject(fn (Role $role): bool => $role->name === User::SUPER_ADMIN_ROLE
+                    || $role->permissions->pluck('name')->intersect(User::USER_ADMIN_PERMISSIONS)->isNotEmpty())
+                ->values();
         }
 
-        $allowedPermissions = $actor->getAllPermissions()->pluck('name');
-
-        return $roles
-            ->reject(fn (Role $role): bool => $role->name === User::SUPER_ADMIN_ROLE)
-            ->filter(fn (Role $role): bool => $role->permissions->pluck('name')->diff($allowedPermissions)->isEmpty())
-            ->values();
+        return $roles;
     }
 
     /**
@@ -260,6 +300,18 @@ class UserManagementController extends Controller
     }
 
     /**
+     * @param  Collection<int, Role>  $roles
+     * @return Collection<int, Role>
+     */
+    private function localizeRoles(Collection $roles): Collection
+    {
+        return $roles->each(function (Role $role): void {
+            $translationKey = 'users.role_names.'.$role->name;
+            $role->setAttribute('display_name', Lang::has($translationKey) ? __($translationKey) : $role->name);
+        });
+    }
+
+    /**
      * @param  Collection<int, Role>|null  $roles
      */
     private function protectLastActiveSuperAdmin(User $target, string $nextStatus, ?Collection $roles): void
@@ -277,6 +329,9 @@ class UserManagementController extends Controller
         $activeSuperAdmins = User::query()
             ->where('status', 'active')
             ->whereHas('roles', fn ($query) => $query->where('name', User::SUPER_ADMIN_ROLE))
+            ->orderBy('id')
+            ->lockForUpdate()
+            ->get(['id'])
             ->count();
 
         if ($activeSuperAdmins <= 1) {

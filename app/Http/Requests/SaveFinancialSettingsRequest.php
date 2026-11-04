@@ -8,7 +8,7 @@ class SaveFinancialSettingsRequest extends FormRequest
 {
     public function authorize(): bool
     {
-        return $this->user()?->can('manage financial settings') ?? false;
+        return $this->user()?->isSuperAdmin() ?? false;
     }
 
     public function rules(): array

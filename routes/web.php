@@ -23,6 +23,7 @@ use App\Http\Controllers\SundayOfferingController;
 use App\Http\Controllers\SwalaSmsWebhookController;
 use App\Http\Controllers\SystemSettingsController;
 use App\Http\Controllers\UserManagementController;
+use App\Http\Middleware\EnsureSuperAdmin;
 use App\Http\Middleware\EnsureUserIsActive;
 use Illuminate\Support\Facades\Route;
 
@@ -228,7 +229,7 @@ Route::middleware(['auth', 'verified', EnsureUserIsActive::class])->group(functi
         ->name('finance.sunday-offerings.create');
 
     Route::get('/finance/sunday-offerings/members/search', [SundayOfferingController::class, 'searchMembers'])
-        ->middleware('can:create Sunday offerings')
+        ->middleware(['can:create Sunday offerings', 'throttle:60,1'])
         ->name('finance.sunday-offerings.members.search');
 
     Route::post('/finance/sunday-offerings', [SundayOfferingController::class, 'store'])
@@ -365,11 +366,11 @@ Route::middleware(['auth', 'verified', EnsureUserIsActive::class])->group(functi
         ->name('finance.receipts.index');
 
     Route::get('/finance/receipts/settings', [FinancialSettingsController::class, 'editReceipts'])
-        ->middleware('can:manage receipts')
+        ->middleware(EnsureSuperAdmin::class)
         ->name('finance.receipts.settings.edit');
 
     Route::put('/finance/receipts/settings', [FinancialSettingsController::class, 'updateReceipts'])
-        ->middleware('can:manage receipts')
+        ->middleware(EnsureSuperAdmin::class)
         ->name('finance.receipts.settings.update');
 
     Route::get('/finance/receipts/{receiptNumber}', [FinancialReceiptController::class, 'show'])
@@ -410,19 +411,19 @@ Route::middleware(['auth', 'verified', EnsureUserIsActive::class])->group(functi
         ->name('finance.imports.report');
 
     Route::get('/finance/settings', [FinancialSettingsController::class, 'edit'])
-        ->middleware('can:manage financial settings')
+        ->middleware(EnsureSuperAdmin::class)
         ->name('finance.settings.edit');
 
     Route::put('/finance/settings', [FinancialSettingsController::class, 'update'])
-        ->middleware('can:manage financial settings')
+        ->middleware(EnsureSuperAdmin::class)
         ->name('finance.settings.update');
 
     Route::get('/finance/sms/settings', [FinancialSettingsController::class, 'editSms'])
-        ->middleware('can:manage SMS settings')
+        ->middleware(EnsureSuperAdmin::class)
         ->name('finance.sms.settings.edit');
 
     Route::put('/finance/sms/settings', [FinancialSettingsController::class, 'updateSms'])
-        ->middleware('can:manage SMS settings')
+        ->middleware(EnsureSuperAdmin::class)
         ->name('finance.sms.settings.update');
 
     Route::get('/finance/sms', [FinancialSmsController::class, 'index'])
@@ -457,7 +458,7 @@ Route::middleware(['auth', 'verified', EnsureUserIsActive::class])->group(functi
         ->name('finance.sms.campaigns.show');
 
     Route::post('/finance/sms/settings/test-connection', [FinancialSettingsController::class, 'testSmsConnection'])
-        ->middleware('can:manage SMS settings')
+        ->middleware(EnsureSuperAdmin::class)
         ->name('finance.sms.settings.test-connection');
 
     Route::post('/finance/sms/{smsLog}/refresh-status', [FinancialSmsController::class, 'refreshStatus'])
@@ -465,50 +466,59 @@ Route::middleware(['auth', 'verified', EnsureUserIsActive::class])->group(functi
         ->name('finance.sms.refresh-status');
 
     Route::post('/finance/sms/test', [FinancialSmsController::class, 'sendTest'])
-        ->middleware('can:send test SMS')
+        ->middleware(EnsureSuperAdmin::class)
         ->name('finance.sms.test');
 
     Route::get('/settings', [SystemSettingsController::class, 'edit'])
+        ->middleware(EnsureSuperAdmin::class)
         ->name('settings.edit');
 
     Route::put('/settings', [SystemSettingsController::class, 'update'])
-        ->middleware('can:manage settings')
+        ->middleware(EnsureSuperAdmin::class)
         ->name('settings.update');
 
     Route::get('/users', [UserManagementController::class, 'index'])
-        ->middleware('can:view users')
+        ->middleware(EnsureSuperAdmin::class)
         ->name('users.index');
 
     Route::get('/users/create', [UserManagementController::class, 'create'])
-        ->middleware('can:create users')
+        ->middleware(EnsureSuperAdmin::class)
         ->name('users.create');
 
     Route::post('/users', [UserManagementController::class, 'store'])
-        ->middleware('can:create users')
+        ->middleware(EnsureSuperAdmin::class)
         ->name('users.store');
 
     Route::get('/users/{managedUser}/edit', [UserManagementController::class, 'edit'])
-        ->middleware('can:edit users')
+        ->middleware(EnsureSuperAdmin::class)
         ->name('users.edit');
 
     Route::put('/users/{managedUser}', [UserManagementController::class, 'update'])
-        ->middleware('can:edit users')
+        ->middleware(EnsureSuperAdmin::class)
         ->name('users.update');
 
     Route::patch('/users/{managedUser}/status', [UserManagementController::class, 'updateStatus'])
-        ->middleware('can:deactivate users')
+        ->middleware(EnsureSuperAdmin::class)
         ->name('users.status');
 
     Route::post('/users/{managedUser}/password-reset', [UserManagementController::class, 'sendPasswordReset'])
-        ->middleware(['can:edit users', 'throttle:6,1'])
+        ->middleware([EnsureSuperAdmin::class, 'throttle:6,1'])
         ->name('users.password-reset');
 
+    Route::post('/users/{managedUser}/invitation', [UserManagementController::class, 'retryInvitation'])
+        ->middleware([EnsureSuperAdmin::class, 'throttle:6,1'])
+        ->name('users.invitation.retry');
+
     Route::put('/users/{managedUser}/permissions', [UserManagementController::class, 'updatePermissions'])
-        ->middleware('can:manage permissions')
+        ->middleware(EnsureSuperAdmin::class)
         ->name('users.permissions.update');
 
+    Route::delete('/users/{managedUser}', [UserManagementController::class, 'destroy'])
+        ->middleware(EnsureSuperAdmin::class)
+        ->name('users.destroy');
+
     Route::get('/users/{managedUser}', [UserManagementController::class, 'show'])
-        ->middleware('can:view users')
+        ->middleware(EnsureSuperAdmin::class)
         ->name('users.show');
 });
 

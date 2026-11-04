@@ -16,6 +16,7 @@ use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
+use Throwable;
 
 class FinancialTransactionService
 {
@@ -62,6 +63,12 @@ class FinancialTransactionService
             ]);
         }
 
+        if ($source === FinancialTransaction::SOURCE_SUNDAY_OFFERING) {
+            $attributes['payment_method'] = 'cash';
+            $attributes['transaction_date'] = now()->toDateString();
+            $attributes['reference_number'] = null;
+        }
+
         if (! preg_match('/^(?=.*[1-9])\d{1,13}(?:\.\d{1,2})$/', $attributes['amount'])) {
             throw ValidationException::withMessages([
                 'amount' => __('finance.import_error_amount'),
@@ -85,7 +92,7 @@ class FinancialTransactionService
         ], JSON_THROW_ON_ERROR));
 
         try {
-            return DB::transaction(function () use ($attributes, $actor, $payloadHash, $source): FinancialTransaction {
+            $transaction = DB::transaction(function () use ($attributes, $actor, $payloadHash, $source): FinancialTransaction {
                 $existing = FinancialTransaction::query()
                     ->where('idempotency_key', $attributes['idempotency_key'])
                     ->first();
@@ -174,7 +181,15 @@ class FinancialTransactionService
                         'currency',
                         Setting::getValue('currency', 'TZS'),
                     ),
-                    'status' => 'pending',
+                    'status' => $source === FinancialTransaction::SOURCE_SUNDAY_OFFERING
+                        ? 'approved'
+                        : 'pending',
+                    'approved_by' => $source === FinancialTransaction::SOURCE_SUNDAY_OFFERING
+                        ? $actor->id
+                        : null,
+                    'approved_at' => $source === FinancialTransaction::SOURCE_SUNDAY_OFFERING
+                        ? now()
+                        : null,
                     'ledger_sign' => 1,
                 ]);
 
@@ -182,6 +197,13 @@ class FinancialTransactionService
                     'status' => $transaction->status,
                     'amount' => $transaction->amount,
                 ]);
+
+                if ($source === FinancialTransaction::SOURCE_SUNDAY_OFFERING) {
+                    $this->audit($transaction, $actor, 'approved', [
+                        'approved_by' => $actor->id,
+                        'approved_at' => $transaction->approved_at?->toIso8601String(),
+                    ]);
+                }
 
                 return $transaction;
             });
@@ -202,6 +224,16 @@ class FinancialTransactionService
 
             return $existing;
         }
+
+        if ($source === FinancialTransaction::SOURCE_SUNDAY_OFFERING) {
+            try {
+                $this->queueConfirmationSms($transaction);
+            } catch (Throwable $exception) {
+                report($exception);
+            }
+        }
+
+        return $transaction;
     }
 
     public function approve(FinancialTransaction $transaction, User $actor): FinancialTransaction
@@ -254,7 +286,7 @@ class FinancialTransactionService
 
         try {
             $this->queueConfirmationSms($approved);
-        } catch (\Throwable $exception) {
+        } catch (Throwable $exception) {
             report($exception);
         }
 
@@ -373,7 +405,9 @@ class FinancialTransactionService
             return;
         }
 
-        if (! SmsSettings::enabled()) {
+        $isSundayOffering = $transaction->source === FinancialTransaction::SOURCE_SUNDAY_OFFERING;
+
+        if (! $isSundayOffering && ! SmsSettings::enabled()) {
             return;
         }
 
@@ -383,8 +417,6 @@ class FinancialTransactionService
             'other_income' => 'auto_other_income',
             default => null,
         };
-
-        $isSundayOffering = $transaction->source === FinancialTransaction::SOURCE_SUNDAY_OFFERING;
 
         if (! $isSundayOffering && ($automaticNotificationKey === null
             || SmsSettings::shared($automaticNotificationKey, '0') !== '1')) {
@@ -401,12 +433,13 @@ class FinancialTransactionService
 
         $testMode = SmsSettings::testMode();
         $hasCredentials = SmsSettings::hasCredentials();
+        $smsIsAvailable = SmsSettings::enabled() && ($testMode || $hasCredentials);
         $notificationType = $isSundayOffering ? 'sunday_offering' : 'financial_receipt';
         $status = $isSundayOffering && ! $member->sms_opt_in
             ? 'cancelled'
             : ($phone === ''
                 ? 'no_phone'
-                : ($testMode || $hasCredentials ? 'queued' : 'not_configured'));
+                : ($smsIsAvailable ? 'queued' : 'not_configured'));
 
         $log = FinancialSmsLog::query()->firstOrCreate([
             'financial_transaction_id' => $transaction->id,
@@ -422,16 +455,19 @@ class FinancialTransactionService
             'status' => $status,
             'error_message' => $isSundayOffering && ! $member->sms_opt_in
                 ? __('finance.sms_sunday_consent_required')
-                : null,
+                : ($phone === ''
+                    ? __('finance.sms_sunday_no_phone')
+                    : (! $smsIsAvailable ? __('finance.sms_not_configured') : null)),
         ]);
 
-        if ($log->wasRecentlyCreated && $log->status === 'queued' && ($testMode || $hasCredentials)) {
+        if ($log->wasRecentlyCreated && $log->status === 'queued' && $smsIsAvailable) {
             try {
-                SendFinancialSms::dispatch($log->id);
-            } catch (\Throwable) {
+                SendFinancialSms::dispatch($log->id)->afterCommit();
+            } catch (Throwable $exception) {
+                report($exception);
                 $log->forceFill([
                     'status' => 'failed',
-                    'error_message' => 'The SMS could not be added to the delivery queue.',
+                    'error_message' => __('finance.sms_sunday_queue_failed'),
                 ])->save();
             }
         }

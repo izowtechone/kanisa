@@ -9,7 +9,7 @@ class SendTestSmsRequest extends FormRequest
 {
     public function authorize(): bool
     {
-        return $this->user()?->can('send test SMS') ?? false;
+        return $this->user()?->isSuperAdmin() ?? false;
     }
 
     public function rules(): array

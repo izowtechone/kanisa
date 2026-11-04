@@ -20,6 +20,7 @@ class FinancialSmsLog extends Model
         'financial_transaction_id',
         'bulk_sms_campaign_id',
         'member_id',
+        'user_id',
         'notification_type',
         'message',
         'created_by',
@@ -71,6 +72,11 @@ class FinancialSmsLog extends Model
     public function member(): BelongsTo
     {
         return $this->belongsTo(Member::class);
+    }
+
+    public function user(): BelongsTo
+    {
+        return $this->belongsTo(User::class);
     }
 
     public function smsAttempts(): HasMany

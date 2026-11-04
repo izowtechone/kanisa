@@ -68,7 +68,7 @@
                     <p class="mt-1 text-sm text-slate-400">{{ __('finance.sunday_offering_sms_not_queued') }}</p>
                 @endif
                 <p class="mt-2 text-xs text-slate-500">{{ __('finance.sms_log_description') }}</p>
-                <p class="mt-2 text-xs text-slate-500">{{ __('finance.sunday_offering_sms_approval_note') }}</p>
+                <p class="mt-2 text-xs text-slate-500">{{ __('finance.sunday_offering_sms_recording_note') }}</p>
             </div>
         </section>
 

@@ -36,6 +36,7 @@ class FinancialSmsController extends Controller
         ]);
 
         $query = FinancialSmsLog::query()
+            ->where('notification_type', '!=', 'user_invitation')
             ->with([
                 'transaction:id,transaction_number,receipt_number,type,amount,currency',
                 'smsAttempts',

@@ -111,6 +111,8 @@ class RoleSeeder extends Seeder
             'Katibu',
             'Mweka Hazina',
             'Mhasibu',
+            'Mwinjilisti',
+            'Mzee wa Kanisa',
         ];
 
         foreach ($roles as $role) {
@@ -208,6 +210,21 @@ class RoleSeeder extends Seeder
             'view financial reports',
             'view financial receipts',
             'view receipts',
+        ]);
+
+        Role::findByName('Mwinjilisti', 'web')->givePermissionTo([
+            'view dashboard',
+            'view members',
+            'view groups',
+            'view events',
+        ]);
+
+        Role::findByName('Mzee wa Kanisa', 'web')->givePermissionTo([
+            'view dashboard',
+            'view members',
+            'view departments',
+            'view groups',
+            'view communities',
         ]);
 
         app()[PermissionRegistrar::class]->forgetCachedPermissions();

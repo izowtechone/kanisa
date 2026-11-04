@@ -88,7 +88,6 @@ class SundayOfferingController extends Controller
             ? null
             : Member::query()
                 ->where('status', 'active')
-                ->with('community:id,code,name')
                 ->find($memberId);
 
         return view('finance.sunday-offerings.create', [
@@ -113,7 +112,7 @@ class SundayOfferingController extends Controller
         ]);
 
         return response()->json([
-            'data' => $members->searchActive($validated['search'], includeCommunity: true)
+            'data' => $members->searchActive($validated['search'])
                 ->map(fn (Member $member): array => [
                     'id' => $member->id,
                     'name' => trim(implode(' ', array_filter([
@@ -123,8 +122,6 @@ class SundayOfferingController extends Controller
                     ]))),
                     'membership_number' => $member->membership_number,
                     'envelope_number' => $member->envelope_number,
-                    'phone' => $member->phone,
-                    'community_name' => $member->community?->name,
                 ]),
         ]);
     }
@@ -137,10 +134,12 @@ class SundayOfferingController extends Controller
             ...$request->validated(),
             'type' => 'offering',
         ], $request->user(), 'sunday_offering');
+        $smsStatus = $transaction->smsLog()->value('status') ?? 'failed';
 
         return redirect()
-            ->route('finance.sunday-offerings.show', $transaction)
-            ->with('success', __('finance.sunday_offering_approval_pending'));
+            ->route('finance.sunday-offerings.create')
+            ->with('sunday_offering_saved', $transaction->receipt_number)
+            ->with('sunday_offering_sms_status', $smsStatus);
     }
 
     public function show(Request $request, FinancialTransaction $transaction): View

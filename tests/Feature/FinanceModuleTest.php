@@ -21,6 +21,7 @@ use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Spatie\Permission\Models\Permission;
+use Spatie\Permission\Models\Role;
 
 function financeModuleTestUser(array $permissions): User
 {
@@ -29,6 +30,14 @@ function financeModuleTestUser(array $permissions): User
     foreach ($permissions as $permission) {
         $user->givePermissionTo(Permission::findOrCreate($permission, 'web'));
     }
+
+    return $user;
+}
+
+function financeModuleTestSuperAdmin(array $permissions = []): User
+{
+    $user = financeModuleTestUser($permissions);
+    $user->assignRole(Role::findOrCreate(User::SUPER_ADMIN_ROLE, 'web'));
 
     return $user;
 }
@@ -372,7 +381,7 @@ test('financial settings encrypt SwalaSMS credentials at rest', function () {
 
 test('authorized SMS settings save encrypted credentials and reject unauthorized updates', function () {
     $unauthorized = financeModuleTestUser(['view finances']);
-    $manager = financeModuleTestUser(['manage SMS settings']);
+    $manager = financeModuleTestSuperAdmin(['manage SMS settings']);
     $payload = financeModuleSmsSettingsPayload();
 
     $this->actingAs($unauthorized)
@@ -399,7 +408,7 @@ test('authorized SMS settings save encrypted credentials and reject unauthorized
 
 test('authorized system settings store the church logo on the public disk', function () {
     Storage::fake('public');
-    $manager = financeModuleTestUser(['manage settings']);
+    $manager = financeModuleTestSuperAdmin(['manage settings']);
 
     $this->actingAs($manager)
         ->put(route('settings.update'), [
@@ -415,17 +424,16 @@ test('authorized system settings store the church logo on the public disk', func
     Storage::disk('public')->assertExists($logoPath);
 });
 
-test('SMS managers can use unified settings without viewing church settings or saved credentials', function () {
+test('users with SMS permissions but without the Super Admin role cannot view sensitive settings', function () {
     $manager = financeModuleTestUser(['manage SMS settings', 'send test SMS']);
     FinancialSetting::setValue('swala_api_key', 'swl_live_privatekey');
 
     $this->actingAs($manager)
         ->get(route('settings.edit'))
-        ->assertOk()
-        ->assertSee('sms-notifications')
-        ->assertSee('name="swala_api_key"', false)
-        ->assertDontSee('name="church_short_name"', false)
-        ->assertDontSee('swl_live_privatekey');
+        ->assertForbidden();
+
+    $this->put(route('finance.sms.settings.update'), financeModuleSmsSettingsPayload())
+        ->assertForbidden();
 
     $unauthorized = financeModuleTestUser(['view finances']);
     $this->actingAs($unauthorized)
@@ -434,7 +442,7 @@ test('SMS managers can use unified settings without viewing church settings or s
 });
 
 test('SMS setting updates preserve blank credentials and reject unsupported template placeholders', function () {
-    $manager = financeModuleTestUser(['manage SMS settings']);
+    $manager = financeModuleTestSuperAdmin(['manage SMS settings']);
     FinancialSetting::setValue('swala_api_key', 'swl_live_existing');
 
     $this->actingAs($manager)
@@ -456,7 +464,7 @@ test('SMS setting updates preserve blank credentials and reject unsupported temp
 test('a confirmed test SMS requires live credentials and does not create a log when they are missing', function () {
     Http::preventStrayRequests();
 
-    $user = financeModuleTestUser(['send test SMS']);
+    $user = financeModuleTestSuperAdmin(['send test SMS']);
     FinancialSetting::setValue('swala_enabled', '1');
     FinancialSetting::setValue('swala_test_mode', '1');
 
@@ -488,7 +496,7 @@ test('live test SMS is queued only after the user confirms and credentials are c
     Queue::fake();
     Http::preventStrayRequests();
 
-    $user = financeModuleTestUser(['send test SMS']);
+    $user = financeModuleTestSuperAdmin(['send test SMS']);
     FinancialSetting::setValue('swala_enabled', '1');
     FinancialSetting::setValue('swala_test_mode', '0');
     FinancialSetting::setValue('swala_api_key', 'swl_live_livekey');
@@ -524,7 +532,7 @@ test('SMS settings show the webhook URL and never expose saved secrets', functio
     Http::preventStrayRequests();
     FinancialSetting::setValue('swala_webhook_secret', 'whsec_hidden_value');
 
-    $manager = financeModuleTestUser(['manage SMS settings']);
+    $manager = financeModuleTestSuperAdmin(['manage SMS settings']);
     $this->actingAs($manager)
         ->get(route('settings.edit'))
         ->assertOk()

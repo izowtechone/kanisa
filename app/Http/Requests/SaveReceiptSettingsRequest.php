@@ -8,7 +8,7 @@ class SaveReceiptSettingsRequest extends FormRequest
 {
     public function authorize(): bool
     {
-        return $this->user()?->can('manage receipts') ?? false;
+        return $this->user()?->isSuperAdmin() ?? false;
     }
 
     public function rules(): array

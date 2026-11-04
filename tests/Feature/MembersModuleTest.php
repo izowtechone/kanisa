@@ -306,6 +306,7 @@ test('system settings require authorization and save the uppercase church prefix
         ->assertForbidden();
 
     $administrator = makeMembersTestUser(['manage settings']);
+    $administrator->assignRole(Role::findOrCreate(User::SUPER_ADMIN_ROLE, 'web'));
     $this->actingAs($administrator)
         ->put(route('settings.update'), [
             'church_short_name' => 'Dodoma North',
