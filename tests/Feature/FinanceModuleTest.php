@@ -12,7 +12,9 @@ use App\Models\FinancialTransactionAudit;
 use App\Models\Member;
 use App\Models\Setting;
 use App\Models\User;
+use App\Services\FinancialTransactionService;
 use App\Services\MemberSpreadsheet;
+use App\Services\SmsSegmentEstimator;
 use App\Services\SwalaSmsService;
 use Illuminate\Http\Client\Request as HttpRequest;
 use Illuminate\Http\UploadedFile;
@@ -89,6 +91,7 @@ function financeModuleSmsSettingsPayload(array $overrides = []): array
         'swala_test_mode' => false,
         'sms_language' => 'sw',
         'swala_sender_id' => 'KKKT',
+        'swala_timeout' => 20,
         'swala_api_key' => 'swl_live_abc123',
         'sms_auto_offering' => true,
         'sms_auto_contribution' => true,
@@ -339,6 +342,7 @@ test('receipts are unavailable until an entry is approved and after it is revers
 test('SwalaSMS test mode records a test attempt without sending an SMS', function () {
     $user = User::factory()->create();
     $category = financeModuleTestCategory($user);
+    $member = financeModuleTestMember(['sms_opt_in' => true]);
     $transaction = FinancialTransaction::query()->create([
         'transaction_number' => 'KKKT-TXN-2026-000001',
         'receipt_number' => 'KKKT-RCPT-2026-000001',
@@ -346,7 +350,7 @@ test('SwalaSMS test mode records a test attempt without sending an SMS', functio
         'payload_hash' => hash('sha256', 'sms-test'),
         'type' => 'offering',
         'category_id' => $category->id,
-        'member_id' => financeModuleTestMember()->id,
+        'member_id' => $member->id,
         'member_number' => 'KKKT-FIN-0001',
         'member_name' => 'Neema Mushi',
         'created_by' => $user->id,
@@ -358,12 +362,13 @@ test('SwalaSMS test mode records a test attempt without sending an SMS', functio
     ]);
     $smsLog = FinancialSmsLog::query()->create([
         'financial_transaction_id' => $transaction->id,
+        'member_id' => $member->id,
         'phone' => '0712345678',
         'is_test' => true,
         'status' => 'queued',
     ]);
 
-    (new SendFinancialSms($smsLog->id))->handle(app(SwalaSmsService::class));
+    (new SendFinancialSms($smsLog->id))->handle(app(SwalaSmsService::class), app(SmsSegmentEstimator::class));
 
     expect($smsLog->fresh()->status)->toBe('test_only')
         ->and(FinancialSmsAttempt::query()->firstOrFail()->status)->toBe('test_only');
@@ -528,7 +533,7 @@ test('live test SMS is queued only after the user confirms and credentials are c
         ->assertSessionHasErrors('confirmation');
 });
 
-test('SMS settings show the webhook URL and never expose saved secrets', function () {
+test('SMS settings explain documented status polling and never expose saved secrets', function () {
     Http::preventStrayRequests();
     FinancialSetting::setValue('swala_webhook_secret', 'whsec_hidden_value');
 
@@ -536,7 +541,8 @@ test('SMS settings show the webhook URL and never expose saved secrets', functio
     $this->actingAs($manager)
         ->get(route('settings.edit'))
         ->assertOk()
-        ->assertSee(route('webhooks.swalasms'))
+        ->assertSee(__('finance.swala_delivery_status_polling'))
+        ->assertDontSee('/webhooks/swalasms')
         ->assertDontSee('whsec_hidden_value');
 
     Http::assertNothingSent();
@@ -547,7 +553,7 @@ test('approved financial entries queue encrypted notifications only when their c
     Queue::fake();
     $creator = financeModuleTestUser(['view finances', 'manage offerings']);
     $approver = financeModuleTestUser(['approve financial transactions']);
-    $member = financeModuleTestMember();
+    $member = financeModuleTestMember(['sms_opt_in' => true]);
     $category = financeModuleTestCategory($creator);
     FinancialSetting::setValue('swala_enabled', '1');
     FinancialSetting::setValue('swala_test_mode', '1');
@@ -597,10 +603,91 @@ test('approved financial entries queue encrypted notifications only when their c
     expect(FinancialSmsLog::query()->count())->toBe(1);
 });
 
+test('approved financial confirmations are cancelled without member consent', function () {
+    $this->travelTo('2026-11-02 12:00:00');
+    Queue::fake([SendFinancialSms::class]);
+    $creator = financeModuleTestUser(['view finances', 'manage offerings']);
+    $approver = financeModuleTestUser(['approve financial transactions']);
+    $member = financeModuleTestMember(['sms_opt_in' => false]);
+    $category = financeModuleTestCategory($creator);
+    FinancialSetting::setValue('swala_enabled', '1');
+    FinancialSetting::setValue('swala_test_mode', '1');
+    FinancialSetting::setValue('sms_auto_offering', '1');
+
+    $this->actingAs($creator)->post(route('finance.transactions.store', ['type' => 'offering']), financeModuleEntryPayload(
+        $category->id, ['member_number' => $member->membership_number],
+    ))->assertSessionHasNoErrors();
+    $transaction = FinancialTransaction::query()->firstOrFail();
+    $this->actingAs($approver)->post(route('finance.transactions.approve', $transaction))->assertRedirect();
+
+    $log = FinancialSmsLog::query()->firstOrFail();
+    expect($transaction->fresh()->status)->toBe('approved')
+        ->and($log->status)->toBe('cancelled')
+        ->and($log->error_message)->toBe(__('finance.sms_financial_consent_required'));
+    Queue::assertNotPushed(SendFinancialSms::class);
+});
+
+test('financial confirmations are cancelled when consent is withdrawn before sending', function () {
+    Http::preventStrayRequests();
+    $member = financeModuleTestMember(['sms_opt_in' => false]);
+    $log = FinancialSmsLog::query()->create([
+        'member_id' => $member->id,
+        'notification_type' => 'financial_receipt',
+        'phone' => $member->phone,
+        'message' => 'Confirmation',
+        'status' => 'queued',
+        'is_test' => false,
+    ]);
+
+    (new SendFinancialSms($log->id))->handle(app(SwalaSmsService::class), app(SmsSegmentEstimator::class));
+
+    expect($log->fresh()->status)->toBe('cancelled')
+        ->and($log->fresh()->error_message)->toBe(__('finance.sms_financial_recipient_no_longer_eligible'));
+    $this->assertDatabaseCount('financial_sms_attempts', 0);
+    Http::assertNothingSent();
+});
+
+test('all supported financial transaction types require SMS consent', function (string $type, string $setting) {
+    Queue::fake([SendFinancialSms::class]);
+    $creator = User::factory()->create();
+    $approver = User::factory()->create();
+    $member = financeModuleTestMember(['sms_opt_in' => false]);
+    $category = financeModuleTestCategory($creator, $type);
+    FinancialSetting::setValue('swala_enabled', '1');
+    FinancialSetting::setValue('swala_test_mode', '1');
+    FinancialSetting::setValue('sms_auto_'.$setting, '1');
+    $transaction = FinancialTransaction::query()->create([
+        'transaction_number' => 'KKKT-TXN-2026-000001',
+        'receipt_number' => 'KKKT-RCPT-2026-000001',
+        'idempotency_key' => (string) Str::uuid(),
+        'payload_hash' => hash('sha256', 'consent'),
+        'type' => $type,
+        'category_id' => $category->id,
+        'member_id' => $member->id,
+        'created_by' => $creator->id,
+        'amount' => '125.00',
+        'currency' => 'TZS',
+        'payment_method' => 'cash',
+        'status' => 'pending',
+        'transaction_date' => '2026-11-02',
+    ]);
+
+    app(FinancialTransactionService::class)->approve($transaction, $approver);
+
+    expect($transaction->fresh()->status)->toBe('approved')
+        ->and(FinancialSmsLog::query()->firstOrFail()->status)->toBe('cancelled');
+    Queue::assertNotPushed(SendFinancialSms::class);
+})->with([
+    'offering' => ['offering', 'offering'],
+    'tithe' => ['tithe', 'offering'],
+    'contribution' => ['contribution', 'contribution'],
+    'other income' => ['other_income', 'other_income'],
+]);
+
 test('SwalaSMS SMS submission uses the configured endpoint and marks accepted submissions', function () {
     Http::preventStrayRequests();
     Http::fake([
-        'https://api.swalasms.com/v1/sms/messages' => Http::response(['success' => true, 'data' => ['uid' => 'swala-uid-123', 'recipient' => '+255712345678', 'sender_id' => 'KKKT', 'units' => 1, 'channel' => 'sms', 'status' => 'queued', 'idempotent_replay' => false]], 202),
+        'https://api.swalasms.com/v2/sms/send-bulk' => Http::response(['success' => true, 'data' => ['uid' => 'campaign-123', 'messages' => [['to' => '+255712345678', 'message_uid' => 'swala-uid-123', 'status' => 'queued', 'units' => 1]], 'failures' => []]], 202),
     ]);
 
     FinancialSetting::setValue('swala_api_key', 'swl_live_testkey');
@@ -608,7 +695,7 @@ test('SwalaSMS SMS submission uses the configured endpoint and marks accepted su
     FinancialSetting::setValue('swala_test_mode', '0');
 
     $user = User::factory()->create();
-    $member = financeModuleTestMember();
+    $member = financeModuleTestMember(['sms_opt_in' => true]);
     $category = financeModuleTestCategory($user);
     $transaction = FinancialTransaction::query()->create([
         'transaction_number' => 'KKKT-TXN-2026-000001',
@@ -629,17 +716,18 @@ test('SwalaSMS SMS submission uses the configured endpoint and marks accepted su
     ]);
     $smsLog = FinancialSmsLog::query()->create([
         'financial_transaction_id' => $transaction->id,
+        'member_id' => $member->id,
         'phone' => '0712345678',
         'is_test' => false,
         'status' => 'queued',
     ]);
 
-    (new SendFinancialSms($smsLog->id))->handle(app(SwalaSmsService::class));
+    (new SendFinancialSms($smsLog->id))->handle(app(SwalaSmsService::class), app(SmsSegmentEstimator::class));
 
-    Http::assertSent(fn (HttpRequest $request): bool => $request->url() === 'https://api.swalasms.com/v1/sms/messages'
+    Http::assertSent(fn (HttpRequest $request): bool => $request->url() === 'https://api.swalasms.com/v2/sms/send-bulk'
         && $request->hasHeader('Authorization', 'Bearer swl_live_testkey')
         && $request->hasHeader('Idempotency-Key')
-        && $request['recipient'] === '+255712345678'
+        && $request['recipients'] === ['+255712345678']
         && $request['sender_id'] === 'KKKT');
     expect($smsLog->fresh()->status)->toBe('accepted')
         ->and($smsLog->fresh()->provider_message_id)->toBe('swala-uid-123')

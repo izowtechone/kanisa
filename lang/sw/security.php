@@ -1,0 +1,30 @@
+<?php
+
+return [
+    'eyebrow' => 'Udhibiti wa ufikiaji',
+    'title' => 'Matukio ya usalama wa kuingia',
+    'description' => 'Kagua shughuli za hivi karibuni za kuingia na uthibitishaji. Nenosiri na misimbo ya mara moja hazihifadhiwi.',
+    'time' => 'Muda',
+    'account' => 'Akaunti',
+    'event' => 'Tukio',
+    'ip' => 'Anwani ya IP',
+    'details' => 'Maelezo',
+    'unknown_account' => 'Akaunti isiyojulikana',
+    'empty' => 'Hakuna matukio ya usalama yaliyorekodiwa.',
+    'events' => [
+        'password_verified' => 'Nenosiri limethibitishwa',
+        'password_failed' => 'Uthibitishaji wa nenosiri umeshindwa',
+        'phone_verification_changed' => 'Uthibitisho wa simu ya akaunti umebadilishwa',
+        'otp_unavailable' => 'Uthibitishaji wa OTP haupatikani',
+        'otp_requested' => 'Msimbo wa uthibitishaji umeombwa',
+        'otp_resent' => 'Msimbo wa uthibitishaji umetumwa tena',
+        'otp_invalid' => 'Msimbo wa uthibitishaji si sahihi',
+        'otp_expired' => 'Muda wa msimbo wa uthibitishaji umeisha',
+        'otp_locked' => 'Ombi la uthibitishaji limefungwa',
+        'otp_verified' => 'Kuingia kumethibitishwa',
+        'otp_cancelled' => 'Uthibitishaji umeghairiwa',
+        'otp_delivery_failed' => 'Utumaji wa SMS ya uthibitishaji umeshindwa',
+        'otp_sms_submitted' => 'SMS ya uthibitishaji imepokelewa na mtoa huduma',
+        'otp_sms_submission_failed' => 'Utumaji wa SMS ya uthibitishaji umeshindwa',
+    ],
+];

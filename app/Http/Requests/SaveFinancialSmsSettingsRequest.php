@@ -28,10 +28,10 @@ class SaveFinancialSmsSettingsRequest extends FormRequest
         return [
             'swala_enabled' => ['required', 'boolean'],
             'swala_test_mode' => ['required', 'boolean'],
+            'swala_timeout' => ['required', 'integer', 'min:1', 'max:60'],
             'sms_language' => ['required', Rule::in(['en', 'sw'])],
-            'swala_sender_id' => ['nullable', 'string', 'max:20', 'regex:/^[A-Za-z0-9 ._-]+$/'],
+            'swala_sender_id' => ['nullable', 'string', 'max:32', 'regex:/^[A-Za-z0-9 ._-]+$/'],
             'swala_api_key' => ['nullable', 'string', 'max:200', 'regex:/^swl_(test|live)_\S+$/'],
-            'swala_webhook_secret' => ['nullable', 'string', 'max:500'],
             'clear_swala_credentials' => ['sometimes', 'boolean'],
             'sms_auto_offering' => ['required', 'boolean'],
             'sms_auto_contribution' => ['required', 'boolean'],
@@ -52,7 +52,7 @@ class SaveFinancialSmsSettingsRequest extends FormRequest
         return [
             function (Validator $validator): void {
                 if ($this->boolean('clear_swala_credentials')
-                    && ($this->filled('swala_api_key') || $this->filled('swala_webhook_secret'))) {
+                    && $this->filled('swala_api_key')) {
                     $validator->errors()->add('clear_swala_credentials', __('finance.clear_or_replace_credentials'));
                 }
 

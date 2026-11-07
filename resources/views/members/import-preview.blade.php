@@ -55,7 +55,7 @@
                 </div>
 
                 @if ($memberImport->skipped_rows + $memberImport->failed_rows > 0)
-                    <a
+                    <a data-no-loading
                         href="{{ route('members.import.report', $memberImport) }}"
                         class="inline-flex rounded-lg border border-blue-500/40 bg-blue-500/10 px-5 py-3 text-sm font-semibold text-blue-300 transition hover:bg-blue-500/20"
                     >
@@ -84,7 +84,7 @@
                                 <h3 class="font-semibold text-white">{{ __('members.validation_errors') }}</h3>
                                 <p class="mt-1 text-xs text-gray-500">{{ __('members.invalid_rows') }}: {{ $memberImport->invalid_rows }}</p>
                             </div>
-                            <a
+                            <a data-no-loading
                                 href="{{ route('members.import.report', $memberImport) }}"
                                 class="text-sm font-semibold text-blue-300 underline underline-offset-4"
                             >

@@ -27,6 +27,7 @@ return [
     'sms_history' => 'Historia ya SMS',
     'sms_campaigns' => 'SMS na Ujumbe',
     'system_settings' => 'Mipangilio ya Mfumo',
+    'login_security' => 'Usalama wa kuingia',
     'language' => 'Lugha',
     'language_sw' => 'Kiswahili',
     'language_en' => 'English',

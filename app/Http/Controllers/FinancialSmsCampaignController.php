@@ -10,6 +10,7 @@ use App\Models\Group;
 use App\Services\BulkSmsBatchDispatcher;
 use App\Services\BulkSmsRecipientSelector;
 use App\Services\SmsSettings;
+use App\Services\SwalaSmsException;
 use App\Services\SwalaSmsService;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\RedirectResponse;
@@ -85,8 +86,9 @@ class FinancialSmsCampaignController extends Controller
             'validPhoneIds' => $validPhoneIds,
             'departments' => Department::query()->orderBy('name')->get(['id', 'name']),
             'groups' => Group::query()->orderBy('name')->get(['id', 'department_id', 'name']),
-            'smsEnabled' => SmsSettings::enabled(),
-            'testMode' => SmsSettings::testMode(),
+            'liveConfigured' => SmsSettings::isLiveConfigured(),
+            'senderVerification' => SmsSettings::senderVerification(),
+            'senderId' => SmsSettings::senderId(),
         ]);
     }
 
@@ -135,7 +137,7 @@ class FinancialSmsCampaignController extends Controller
         ]));
 
         try {
-            PrepareBulkSmsCampaign::dispatch($campaign->id)->delay($scheduledAt);
+            PrepareBulkSmsCampaign::dispatch($campaign->id)->onQueue('bulk')->delay($scheduledAt);
         } catch (Throwable) {
             $campaign->forceFill([
                 'status' => 'failed',
@@ -155,7 +157,7 @@ class FinancialSmsCampaignController extends Controller
 
     private function ensureLiveConfiguration(): void
     {
-        if (! SmsSettings::enabled() || SmsSettings::testMode() || ! SmsSettings::hasCredentials()) {
+        if (! SmsSettings::isLiveConfigured()) {
             throw ValidationException::withMessages([
                 'campaign' => __('finance.bulk_sms_requires_live_configuration'),
             ]);
@@ -179,7 +181,15 @@ class FinancialSmsCampaignController extends Controller
             ->orderBy('id')
             ->paginate(25);
 
-        return view('finance.sms.campaigns.show', compact('campaign', 'recipients'));
+        $duplicateCount = $campaign->recipients()->where('provider_error_code', 'DUPLICATE_RECIPIENT')->count();
+
+        return view('finance.sms.campaigns.show', [
+            'campaign' => $campaign,
+            'recipients' => $recipients,
+            'duplicateCount' => $duplicateCount,
+            'senderId' => SmsSettings::senderId(),
+            'senderVerification' => SmsSettings::senderVerification(),
+        ]);
     }
 
     public function cancel(BulkSmsCampaign $campaign): RedirectResponse
@@ -195,7 +205,11 @@ class FinancialSmsCampaignController extends Controller
 
             $lockedCampaign->recipients()
                 ->where('status', 'queued')
-                ->update(['status' => 'cancelled', 'updated_at' => now()]);
+                ->update([
+                    'status' => 'cancelled',
+                    'error_message' => __('finance.sms_campaign_cancelled_by_admin'),
+                    'updated_at' => now(),
+                ]);
 
             $lockedCampaign->forceFill([
                 'status' => 'cancelled',
@@ -222,6 +236,12 @@ class FinancialSmsCampaignController extends Controller
                 ]);
             }
 
+            if ($logs->contains('provider_acceptance_state', SwalaSmsException::UNKNOWN)) {
+                throw ValidationException::withMessages([
+                    'campaign' => __('finance.sms_unknown_outcome'),
+                ]);
+            }
+
             foreach ($logs as $log) {
                 $log->forceFill([
                     'status' => 'queued',
@@ -238,7 +258,7 @@ class FinancialSmsCampaignController extends Controller
             return $logs->modelKeys();
         });
 
-        $dispatcher->dispatch($campaign, $failedIds, reuseUnknownKeys: true);
+        $dispatcher->dispatch($campaign, $failedIds);
 
         $campaign->refresh()->refreshStatus();
 

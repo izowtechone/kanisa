@@ -63,7 +63,7 @@ class BulkSmsCampaign extends Model
 
         if ($pending > 0) {
             $status = $sending ? 'processing' : ($this->scheduled_at?->isFuture() ? 'scheduled' : 'queued');
-        } elseif ($total === 0 || ($accepted === 0 && $failed > 0)) {
+        } elseif ($total === 0 || $accepted === 0) {
             $status = 'failed';
         } elseif ($failed > 0) {
             $status = 'partially_failed';

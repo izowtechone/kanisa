@@ -54,6 +54,7 @@
 
         <section class="grid gap-4 rounded-2xl border border-slate-800 bg-[#111a2e] p-6 sm:grid-cols-2">
             <div><p class="text-xs text-slate-500">{{ __('users.phone') }}</p><p class="mt-1 text-slate-200">{{ $managedUser->phone ?: '—' }}</p></div>
+            <div><p class="text-xs text-slate-500">{{ __('users.phone_verified') }}</p><p class="mt-1 text-slate-200">{{ $managedUser->phone_verified_at?->format('Y-m-d H:i') ?? __('users.phone_unverified') }}</p></div>
             <div><p class="text-xs text-slate-500">{{ __('users.status') }}</p><p class="mt-1 text-slate-200">{{ __('users.statuses.'.$managedUser->status) }}</p></div>
             <div><p class="text-xs text-slate-500">{{ __('users.roles') }}</p><p class="mt-1 text-slate-200">{{ $managedUser->roles->pluck('display_name')->join(', ') ?: __('users.no_roles') }}</p></div>
             <div><p class="text-xs text-slate-500">{{ __('users.member') }}</p><p class="mt-1 text-slate-200">{{ $managedUser->member ? trim($managedUser->member->first_name.' '.$managedUser->member->last_name).' · '.$managedUser->member->membership_number : __('users.no_member') }}</p></div>

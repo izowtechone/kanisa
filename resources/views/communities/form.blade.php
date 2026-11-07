@@ -74,26 +74,33 @@
                     selected: @js($leader ? ['id' => $leader->id, 'name' => trim(collect([$leader->first_name, $leader->middle_name, $leader->last_name])->filter()->implode(' ')), 'membership_number' => $leader->membership_number] : null),
                     lookupUrl: @js(route('communities.leaders.search')),
                     message: '',
+                    req: kkktLatestRequest(),
                     async lookup() {
                         const value = this.query.trim();
                         this.results = [];
                         this.message = '';
                         if (value.length < 2) {
+                            this.req.cancel();
                             this.message = @js(__('communities.leader_search'));
                             return;
                         }
                         const url = new URL(this.lookupUrl);
                         url.searchParams.set('search', value);
                         try {
-                            const response = await fetch(url, { headers: { 'Accept': 'application/json' } });
-                            if (!response.ok) {
-                                throw new Error('lookup-failed');
+                            const outcome = await this.req.run(async (signal) => {
+                                const response = await fetch(url, { headers: { 'Accept': 'application/json' }, signal });
+                                if (!response.ok) {
+                                    throw new Error('lookup-failed');
+                                }
+                                return response.json();
+                            });
+                            if (outcome.stale) {
+                                return;
                             }
-                            const payload = await response.json();
-                            this.results = payload.data;
+                            this.results = outcome.value.data;
                             this.message = this.results.length ? '' : @js(__('communities.leader_not_active'));
                         } catch {
-                            this.message = @js(__('communities.leader_not_active'));
+                            this.message = @js(__('loading.failed'));
                         }
                     },
                     choose(member) {
@@ -118,8 +125,9 @@
                     <button type="button" @click="lookup()" class="rounded-lg border border-blue-500/40 bg-blue-500/10 px-4 py-3 text-sm font-semibold text-blue-300 hover:bg-blue-500/20">{{ __('communities.search') }}</button>
                 </div>
                 @error('leader_member_id')<p role="alert" class="text-sm text-rose-300">{{ $message }}</p>@enderror
-                <p x-cloak x-show="message" aria-live="polite" class="text-sm text-slate-400" x-text="message"></p>
-                <div x-cloak x-show="results.length" class="overflow-hidden rounded-lg border border-slate-700">
+                <p x-cloak x-show="req.pending" role="status" class="flex items-center gap-2 text-sm text-slate-400"><span class="kkkt-loader" aria-hidden="true"></span>{{ __('loading.loading') }}</p>
+                <p x-cloak x-show="message && !req.pending" aria-live="polite" class="text-sm text-slate-400" x-text="message"></p>
+                <div x-cloak x-show="results.length" :aria-busy="req.pending" class="overflow-hidden rounded-lg border border-slate-700">
                     <ul class="divide-y divide-slate-800" role="listbox" aria-label="{{ __('communities.leader_search') }}">
                         <template x-for="member in results" :key="member.id">
                             <li role="option">

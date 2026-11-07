@@ -24,6 +24,7 @@ return [
     'envelope_number' => 'Namba ya bahasha',
     'gender' => 'Jinsia',
     'phone' => 'Simu',
+    'phone_invalid' => 'Weka namba sahihi ya simu ya mkononi. Kwa namba za nje ya Tanzania, tumia msimbo wa nchi.',
     'sms_opt_in' => 'Amekubali kupokea SMS za kanisa',
     'sms_opt_in_help' => 'Ni wanachama waliokubali wazi pekee watakaopokea SMS za pamoja. Wanachama waliopo hawatajiandikisha wenyewe bila kurekodi ridhaa yao.',
     'membership_date' => 'Tarehe ya uanachama',

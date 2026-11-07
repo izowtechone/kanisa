@@ -52,6 +52,7 @@ class User extends Authenticatable implements MustVerifyEmailContract
             'password' => 'hashed',
             'last_login_at' => 'datetime',
             'password_reset_requested_at' => 'datetime',
+            'phone_verified_at' => 'datetime',
         ];
     }
 

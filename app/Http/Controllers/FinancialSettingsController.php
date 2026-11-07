@@ -12,6 +12,7 @@ use App\Services\SmsSettings;
 use App\Services\SwalaSmsException;
 use App\Services\SwalaSmsService;
 use Illuminate\Http\RedirectResponse;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 use Illuminate\View\View;
@@ -69,16 +70,23 @@ class FinancialSettingsController extends Controller
         $validated = $request->validated();
 
         DB::transaction(function () use ($request, $validated): void {
+            $senderChanged = SmsSettings::senderId() !== trim((string) ($validated['swala_sender_id'] ?? ''));
+            $keyChanged = $request->boolean('clear_swala_credentials')
+                || ($request->filled('swala_api_key') && SmsSettings::apiKey() !== $validated['swala_api_key']);
+
+            if ($senderChanged || $keyChanged) {
+                FinancialSetting::setValue('swala_sender_verification', null);
+            }
+            if ($keyChanged) {
+                FinancialSetting::setValue('swala_sender_ids_snapshot', null);
+            }
+
             if ($request->boolean('clear_swala_credentials')) {
                 FinancialSetting::setValue('swala_api_key', null);
                 FinancialSetting::setValue('swala_webhook_secret', null);
             } else {
                 if ($request->filled('swala_api_key')) {
                     FinancialSetting::setValue('swala_api_key', $validated['swala_api_key']);
-                }
-
-                if ($request->filled('swala_webhook_secret')) {
-                    FinancialSetting::setValue('swala_webhook_secret', $validated['swala_webhook_secret']);
                 }
             }
 
@@ -90,6 +98,7 @@ class FinancialSettingsController extends Controller
             }
 
             FinancialSetting::setValue('swala_sender_id', trim((string) ($validated['swala_sender_id'] ?? '')));
+            FinancialSetting::setValue('swala_timeout', (string) $validated['swala_timeout']);
 
             foreach ([
                 'language',
@@ -145,5 +154,66 @@ class FinancialSettingsController extends Controller
         return $success === null
             ? $response->withErrors(['sms' => __('finance.swala_connection_failed')])
             : $response->with('success', $success);
+    }
+
+    public function verifySmsSender(SwalaSmsService $swala): RedirectResponse
+    {
+        $response = redirect()->to(route('settings.edit').'#sms-notifications');
+        $apiKey = SmsSettings::apiKey();
+        $list = SmsSettings::senderList();
+        $error = null;
+
+        if ($apiKey === '') {
+            $error = 'missing';
+        } else {
+            try {
+                $list['senders'] = $swala->senderIds($apiKey);
+                $list['success_at'] = now()->toIso8601String();
+            } catch (SwalaSmsException $exception) {
+                $error = match (true) {
+                    $exception->httpStatus === 401 => 'unauthorized',
+                    $exception->httpStatus === 403 => 'forbidden',
+                    $exception->httpStatus === 404 => 'endpoint_not_found',
+                    $exception->httpStatus === 429 => 'rate_limited',
+                    $exception->httpStatus !== null && $exception->httpStatus >= 500 => 'provider_unavailable',
+                    $exception->errorCode === 'CONNECTION_FAILED' => 'connection',
+                    default => 'unavailable',
+                };
+            }
+        }
+
+        FinancialSetting::setValue('swala_sender_ids_snapshot', json_encode([
+            'senders' => $list['senders'],
+            'success_at' => $list['success_at'],
+            'checked_at' => now()->toIso8601String(),
+            'error' => $error,
+            'fingerprint' => SmsSettings::senderVerificationFingerprint($apiKey),
+        ], JSON_THROW_ON_ERROR));
+
+        if ($error !== null) {
+            return $response->withErrors(['sms' => __('finance.swala_sender_verification_reasons.'.$error)]);
+        }
+
+        return $response->with('success', __('finance.swala_sender_list_refreshed'));
+    }
+
+    public function selectSmsSender(Request $request): RedirectResponse
+    {
+        $validated = $request->validate(['sender_id' => ['required', 'string', 'max:32']]);
+        $list = SmsSettings::senderList();
+        $allowed = $list['error'] === null && $list['success_at'] !== null
+            && collect($list['senders'])->contains(fn (array $sender): bool => $sender['sender_id'] === $validated['sender_id']
+                && $sender['status'] === 'approved' && $sender['is_usable']);
+
+        if (! $allowed) {
+            throw ValidationException::withMessages([
+                'sender_id' => __('finance.swala_sender_selection_invalid'),
+            ]);
+        }
+
+        FinancialSetting::setValue('swala_sender_id', $validated['sender_id']);
+
+        return redirect()->to(route('settings.edit').'#sms-notifications')
+            ->with('success', __('finance.sms_settings_saved'));
     }
 }

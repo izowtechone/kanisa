@@ -138,6 +138,7 @@ class NavigationMenu
                 'label' => 'navigation.group_administration',
                 'items' => [
                     ['label' => 'users.navigation', 'route' => 'users.index', 'icon' => 'shield', 'active' => ['users.*'], 'can' => [], 'role' => User::SUPER_ADMIN_ROLE],
+                    ['label' => 'navigation.login_security', 'route' => 'security.login-events.index', 'icon' => 'shield-check', 'active' => ['security.login-events.*'], 'can' => ['view login security events']],
                     ['label' => 'navigation.sms_history', 'route' => 'finance.sms.index', 'icon' => 'message-square', 'active' => ['finance.sms.index'], 'can' => ['view SMS history']],
                     ['label' => 'navigation.sms_campaigns', 'route' => 'finance.sms.campaigns.index', 'icon' => 'megaphone', 'active' => ['finance.sms.campaigns.*'], 'can' => ['view SMS campaigns']],
                     ['label' => 'navigation.system_settings', 'route' => 'settings.edit', 'icon' => 'settings', 'active' => ['settings.*', 'finance.sms.settings.*'], 'can' => [], 'role' => User::SUPER_ADMIN_ROLE],

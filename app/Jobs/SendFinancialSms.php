@@ -7,13 +7,17 @@ use App\Models\FinancialSmsAttempt;
 use App\Models\FinancialSmsLog;
 use App\Models\Member;
 use App\Models\User;
+use App\Services\BulkSmsDuplicateGuard;
 use App\Services\FinancialSmsMessageBuilder;
+use App\Services\SmsSegmentEstimator;
+use App\Services\SmsSettings;
 use App\Services\SwalaSmsException;
 use App\Services\SwalaSmsService;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
 use Illuminate\Queue\Middleware\RateLimited;
 use Illuminate\Queue\Middleware\WithoutOverlapping;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Throwable;
@@ -59,7 +63,7 @@ class SendFinancialSms implements ShouldQueue
         return [30, 120, 300, 900, 1800];
     }
 
-    public function handle(SwalaSmsService $gateway): void
+    public function handle(SwalaSmsService $gateway, SmsSegmentEstimator $segments): void
     {
         $log = FinancialSmsLog::query()
             ->with(['transaction', 'campaign', 'user'])
@@ -86,7 +90,16 @@ class SendFinancialSms implements ShouldQueue
                 return null;
             }
 
-            if ($lockedLog->notification_type === 'sunday_offering') {
+            if ($lockedLog->provider_acceptance_state === SwalaSmsException::UNKNOWN) {
+                $lockedLog->forceFill([
+                    'status' => 'failed',
+                    'error_message' => 'The previous SMS submission has an unknown outcome and must be reconciled before retrying.',
+                ])->save();
+
+                return null;
+            }
+
+            if (in_array($lockedLog->notification_type, ['sunday_offering', 'financial_receipt'], true)) {
                 $member = Member::query()
                     ->lockForUpdate()
                     ->find($lockedLog->member_id);
@@ -94,7 +107,7 @@ class SendFinancialSms implements ShouldQueue
                 if ($member === null || $member->status !== 'active' || ! $member->sms_opt_in) {
                     $lockedLog->forceFill([
                         'status' => 'cancelled',
-                        'error_message' => __('finance.sms_sunday_recipient_no_longer_eligible'),
+                        'error_message' => __('finance.sms_financial_recipient_no_longer_eligible'),
                     ])->save();
 
                     return null;
@@ -111,7 +124,7 @@ class SendFinancialSms implements ShouldQueue
                 if ($currentPhone === null || $currentPhone !== $queuedPhone) {
                     $lockedLog->forceFill([
                         'status' => 'cancelled',
-                        'error_message' => __('finance.sms_sunday_recipient_no_longer_eligible'),
+                        'error_message' => __('finance.sms_financial_recipient_no_longer_eligible'),
                     ])->save();
 
                     return null;
@@ -159,10 +172,27 @@ class SendFinancialSms implements ShouldQueue
                     $currentPhone = null;
                 }
 
-                if ($currentPhone === null || $currentPhone !== $lockedLog->phone) {
+                try {
+                    $queuedPhone = $gateway->normalizePhone($lockedLog->phone);
+                } catch (\RuntimeException) {
+                    $queuedPhone = null;
+                }
+
+                if ($currentPhone === null || $currentPhone !== $queuedPhone) {
                     $lockedLog->forceFill([
                         'status' => 'cancelled',
                         'error_message' => __('finance.sms_campaign_recipient_no_longer_eligible'),
+                    ])->save();
+
+                    return null;
+                }
+
+                $winners = app(BulkSmsDuplicateGuard::class)->winners($lockedLog->bulk_sms_campaign_id, $gateway);
+                if (($winners[$queuedPhone] ?? null) !== $lockedLog->id) {
+                    $lockedLog->forceFill([
+                        'status' => 'cancelled',
+                        'provider_error_code' => 'DUPLICATE_RECIPIENT',
+                        'error_message' => __('finance.sms_campaign_duplicate_recipient'),
                     ])->save();
 
                     return null;
@@ -217,7 +247,12 @@ class SendFinancialSms implements ShouldQueue
                 throw new SwalaSmsException('The SMS message content is missing.', errorCode: 'MESSAGE_MISSING', acceptanceState: SwalaSmsException::NOT_ACCEPTED);
             }
 
-            $result = $gateway->sendMessage($log->phone, $message, (string) $log->idempotency_key);
+            $estimate = $segments->estimate($message);
+            $log->forceFill([
+                'sender_id' => SmsSettings::senderId(),
+                'encoding' => $estimate['encoding'],
+                'sms_segments' => $estimate['segments'],
+            ])->save();
         } catch (SwalaSmsException $exception) {
             $this->recordFailure($log, $attempt, $exception);
 
@@ -232,29 +267,56 @@ class SendFinancialSms implements ShouldQueue
             return;
         }
 
+        try {
+            $result = $gateway->sendMessage($log->phone, $message, (string) $log->idempotency_key);
+        } catch (SwalaSmsException $exception) {
+            $this->recordFailure($log, $attempt, $exception);
+
+            return;
+        } catch (Throwable) {
+            $this->recordFailure($log, $attempt, new SwalaSmsException(
+                'The SMS submission outcome is unknown and must be reconciled before retrying.',
+                errorCode: 'UNEXPECTED_SUBMISSION_ERROR',
+                acceptanceState: SwalaSmsException::UNKNOWN,
+            ));
+
+            return;
+        }
+
         $failedImmediately = $result['status'] === 'failed';
 
-        $attempt->update([
-            'status' => $failedImmediately ? 'failed' : 'accepted',
-            'provider_message_id' => $result['uid'],
-            'error_message' => $failedImmediately ? $result['failure_reason'] : null,
-            'completed_at' => now(),
-        ]);
-        $log->forceFill([
-            'status' => $failedImmediately ? 'failed' : 'accepted',
-            'provider_message_id' => $result['uid'],
-            'accepted_at' => now(),
-            'error_message' => $failedImmediately ? ($result['failure_reason'] ?? 'SwalaSMS reported the message as failed.') : null,
-            'provider_status' => $result['status'],
-            'provider_error_code' => null,
-            'provider_acceptance_state' => null,
-            'provider_units' => $result['units'],
-            'provider_failure_reason' => $result['failure_reason'],
-            'delivery_status' => $result['status'],
-            'delivery_checked_at' => now(),
-            'delivered_at' => $result['status'] === 'delivered' ? now() : null,
-            'sms_segments' => $result['segments'] ?? $log->sms_segments,
-        ])->save();
+        DB::transaction(function () use ($attempt, $failedImmediately, $log, $result): void {
+            $attempt->update([
+                'status' => $failedImmediately ? 'failed' : 'accepted',
+                'provider_message_id' => $result['uid'],
+                'error_message' => $failedImmediately ? $result['failure_reason'] : null,
+                'completed_at' => now(),
+            ]);
+            $previousDeliveryStatus = $log->delivery_status;
+            $log->forceFill([
+                'status' => $failedImmediately ? 'failed' : 'accepted',
+                'provider_message_id' => $result['uid'],
+                'provider_campaign_uid' => $result['campaign_uid'],
+                'accepted_at' => now(),
+                'error_message' => $failedImmediately ? ($result['failure_reason'] ?? 'SwalaSMS reported the message as failed.') : null,
+                'provider_status' => $result['status'],
+                'provider_error_code' => null,
+                'provider_acceptance_state' => null,
+                'provider_units' => $result['units'],
+                'provider_failure_reason' => $result['failure_reason'],
+                'delivery_status' => $result['status'],
+                'delivery_checked_at' => now(),
+                'delivered_at' => $result['status'] === 'delivered' ? now() : null,
+                'sms_segments' => $result['segments'] ?? $log->sms_segments,
+            ])->save();
+            $log->recordStatusEvent(
+                $previousDeliveryStatus,
+                $result['status'],
+                'submission',
+                $result['failure_reason'],
+                $result['delivered_at'] === null ? null : Carbon::parse($result['delivered_at']),
+            );
+        });
         $this->refreshCampaign($log);
     }
 
@@ -271,7 +333,12 @@ class SendFinancialSms implements ShouldQueue
 
         $log->forceFill([
             'status' => 'failed',
-            'error_message' => 'SMS submission failed after repeated attempts. Review the SwalaSMS settings and retry.',
+            'provider_acceptance_state' => $log->status === 'sending'
+                ? SwalaSmsException::UNKNOWN
+                : $log->provider_acceptance_state,
+            'error_message' => $log->status === 'sending'
+                ? 'The SMS submission outcome is unknown and must be reconciled before retrying.'
+                : 'SMS submission failed after repeated attempts. Review the SwalaSMS settings and retry.',
         ])->save();
         $this->refreshCampaign($log);
     }
@@ -280,6 +347,7 @@ class SendFinancialSms implements ShouldQueue
     {
         $message = 'SwalaSMS'.($exception->errorCode !== null ? ' ['.$exception->errorCode.']' : '').': '.$exception->getMessage();
         $canRetry = $exception->retryable
+            && ! $exception->acceptanceIsUnknown()
             && $log->attempts < self::MAX_SUBMISSION_ATTEMPTS
             && $this->job !== null
             && $this->job->getConnectionName() !== 'sync';

@@ -14,15 +14,16 @@ use App\Http\Controllers\FinancialSmsController;
 use App\Http\Controllers\FinancialTransactionController;
 use App\Http\Controllers\GroupController;
 use App\Http\Controllers\LanguageController;
+use App\Http\Controllers\LoginSecurityEventController;
 use App\Http\Controllers\MemberController;
 use App\Http\Controllers\MemberImportController;
 use App\Http\Controllers\MemberLifecycleController;
 use App\Http\Controllers\OfferingCategoryController;
 use App\Http\Controllers\ProfileController;
 use App\Http\Controllers\SundayOfferingController;
-use App\Http\Controllers\SwalaSmsWebhookController;
 use App\Http\Controllers\SystemSettingsController;
 use App\Http\Controllers\UserManagementController;
+use App\Http\Middleware\EnsureOtpVerified;
 use App\Http\Middleware\EnsureSuperAdmin;
 use App\Http\Middleware\EnsureUserIsActive;
 use Illuminate\Support\Facades\Route;
@@ -35,14 +36,14 @@ Route::get('/language/{locale}', [LanguageController::class, 'update'])
     ->name('language.switch');
 
 // Kurasa za mfumo zinalindwa kwa uthibitisho wa kuingia
-Route::post('/webhooks/swalasms', SwalaSmsWebhookController::class)
-    ->middleware('throttle:swalasms-webhook')
-    ->name('webhooks.swalasms');
-
-Route::middleware(['auth', 'verified', EnsureUserIsActive::class])->group(function () {
+Route::middleware(['auth', EnsureOtpVerified::class, 'verified', EnsureUserIsActive::class])->group(function () {
 
     Route::get('/dashboard', [DashboardController::class, 'index'])
         ->name('dashboard');
+
+    Route::get('/security/login-events', [LoginSecurityEventController::class, 'index'])
+        ->middleware('can:view login security events')
+        ->name('security.login-events.index');
 
     Route::get('/members', [MemberController::class, 'index'])
         ->middleware('can:view members')
@@ -430,6 +431,18 @@ Route::middleware(['auth', 'verified', EnsureUserIsActive::class])->group(functi
         ->middleware('can:view SMS history')
         ->name('finance.sms.index');
 
+    Route::get('/finance/sms/compose', [FinancialSmsController::class, 'compose'])
+        ->middleware('can:send SMS')
+        ->name('finance.sms.compose');
+
+    Route::post('/finance/sms/compose', [FinancialSmsController::class, 'sendManual'])
+        ->middleware('can:send SMS')
+        ->name('finance.sms.send');
+
+    Route::get('/finance/sms/export', [FinancialSmsController::class, 'export'])
+        ->middleware('can:export SMS history')
+        ->name('finance.sms.export');
+
     Route::post('/finance/sms/{smsLog}/retry', [FinancialSmsController::class, 'retry'])
         ->middleware('can:retry failed SMS')
         ->name('finance.sms.retry');
@@ -460,6 +473,14 @@ Route::middleware(['auth', 'verified', EnsureUserIsActive::class])->group(functi
     Route::post('/finance/sms/settings/test-connection', [FinancialSettingsController::class, 'testSmsConnection'])
         ->middleware(EnsureSuperAdmin::class)
         ->name('finance.sms.settings.test-connection');
+
+    Route::post('/finance/sms/settings/verify-sender', [FinancialSettingsController::class, 'verifySmsSender'])
+        ->middleware(EnsureSuperAdmin::class)
+        ->name('finance.sms.settings.verify-sender');
+
+    Route::post('/finance/sms/settings/select-sender', [FinancialSettingsController::class, 'selectSmsSender'])
+        ->middleware(EnsureSuperAdmin::class)
+        ->name('finance.sms.settings.select-sender');
 
     Route::post('/finance/sms/{smsLog}/refresh-status', [FinancialSmsController::class, 'refreshStatus'])
         ->middleware('can:view SMS history')

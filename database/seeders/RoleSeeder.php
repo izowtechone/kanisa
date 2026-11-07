@@ -73,12 +73,15 @@ class RoleSeeder extends Seeder
             'manage receipts',
             'manage financial settings',
             'manage SMS settings',
+            'send SMS',
             'send test SMS',
             'view SMS campaigns',
             'send bulk SMS',
             'cancel SMS campaigns',
             'view SMS history',
+            'export SMS history',
             'retry failed SMS',
+            'view login security events',
 
             // Events
             'view events',

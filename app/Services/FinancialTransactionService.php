@@ -435,7 +435,7 @@ class FinancialTransactionService
         $hasCredentials = SmsSettings::hasCredentials();
         $smsIsAvailable = SmsSettings::enabled() && ($testMode || $hasCredentials);
         $notificationType = $isSundayOffering ? 'sunday_offering' : 'financial_receipt';
-        $status = $isSundayOffering && ! $member->sms_opt_in
+        $status = ! $member->sms_opt_in
             ? 'cancelled'
             : ($phone === ''
                 ? 'no_phone'
@@ -453,8 +453,8 @@ class FinancialTransactionService
                 : $this->smsMessages->forTransaction($transaction),
             'is_test' => $testMode,
             'status' => $status,
-            'error_message' => $isSundayOffering && ! $member->sms_opt_in
-                ? __('finance.sms_sunday_consent_required')
+            'error_message' => ! $member->sms_opt_in
+                ? __('finance.'.($isSundayOffering ? 'sms_sunday_consent_required' : 'sms_financial_consent_required'))
                 : ($phone === ''
                     ? __('finance.sms_sunday_no_phone')
                     : (! $smsIsAvailable ? __('finance.sms_not_configured') : null)),

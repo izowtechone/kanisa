@@ -8,6 +8,8 @@ use Illuminate\Database\Eloquent\Collection;
 
 class MemberSearchService
 {
+    public function __construct(private readonly MobilePhoneNumber $phones) {}
+
     /**
      * @return Collection<int, Member>
      */
@@ -29,8 +31,9 @@ class MemberSearchService
         foreach (preg_split('/\s+/', trim($search)) ?: [] as $term) {
             $like = '%'.$term.'%';
             $phoneDigits = preg_replace('/\D+/', '', $term) ?? '';
+            $phoneAlternates = $this->phones->searchAlternates($term);
 
-            $query->where(function (Builder $query) use ($like, $phoneDigits): void {
+            $query->where(function (Builder $query) use ($like, $phoneDigits, $phoneAlternates): void {
                 $query->where('first_name', 'like', $like)
                     ->orWhere('middle_name', 'like', $like)
                     ->orWhere('last_name', 'like', $like)
@@ -40,6 +43,10 @@ class MemberSearchService
 
                 if ($phoneDigits !== '') {
                     $query->orWhere('phone', 'like', '%'.$phoneDigits.'%');
+                }
+
+                foreach ($phoneAlternates as $alternate) {
+                    $query->orWhere('phone', 'like', '%'.$alternate.'%');
                 }
             });
         }

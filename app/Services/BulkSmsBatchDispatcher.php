@@ -5,74 +5,69 @@ namespace App\Services;
 use App\Jobs\SendBulkSmsBatch;
 use App\Models\BulkSmsCampaign;
 use App\Models\FinancialSmsLog;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
+use RuntimeException;
 use Throwable;
 
 class BulkSmsBatchDispatcher
 {
     /**
      * Assigns queued recipient logs to bounded provider batches and queues one job per batch.
-     * A batch whose previous submission outcome was unknown keeps its idempotency key so the
-     * provider can reuse its message IDs instead of sending twice.
+     * Unknown submission outcomes must be reconciled before dispatch.
      *
      * @param  list<int>  $logIds
      */
-    public function dispatch(BulkSmsCampaign $campaign, array $logIds, bool $reuseUnknownKeys = false): int
+    public function dispatch(BulkSmsCampaign $campaign, array $logIds): int
     {
         if ($logIds === []) {
             return 0;
         }
 
-        $logs = FinancialSmsLog::query()
-            ->where('bulk_sms_campaign_id', $campaign->id)
-            ->where('status', 'queued')
-            ->whereIn('id', $logIds)
-            ->orderBy('id')
-            ->get(['id', 'provider_batch_key', 'provider_acceptance_state']);
+        $batches = DB::transaction(function () use ($campaign, $logIds): array {
+            BulkSmsCampaign::query()->lockForUpdate()->findOrFail($campaign->id);
+            $logs = FinancialSmsLog::query()
+                ->where('bulk_sms_campaign_id', $campaign->id)
+                ->where('status', 'queued')
+                ->whereIn('id', $logIds)
+                ->orderBy('id')
+                ->lockForUpdate()
+                ->get(['id', 'provider_batch_key', 'provider_acceptance_state']);
 
-        $batches = [];
-        $pooled = [];
-
-        if ($reuseUnknownKeys) {
-            foreach ($logs->whereNotNull('provider_batch_key')->groupBy('provider_batch_key') as $key => $group) {
-                $stillUnknown = $group->every(fn (FinancialSmsLog $log): bool => $log->provider_acceptance_state === SwalaSmsException::UNKNOWN);
-
-                if ($stillUnknown && $group->count() <= SwalaSmsService::MAX_BULK_RECIPIENTS) {
-                    $batches[(string) $key] = $group->modelKeys();
-                } else {
-                    $pooled = array_merge($pooled, $group->modelKeys());
-                }
+            if ($logs->contains('provider_acceptance_state', SwalaSmsException::UNKNOWN)) {
+                throw new RuntimeException('An SMS batch has an unknown submission outcome and must be reconciled before dispatch.');
             }
 
-            $pooled = array_merge($pooled, $logs->whereNull('provider_batch_key')->modelKeys());
-            sort($pooled);
-        } else {
-            $pooled = $logs->modelKeys();
-        }
+            $batches = [];
+            $batchSize = max(1, min(SwalaSmsService::MAX_BULK_RECIPIENTS, (int) config('services.swalasms.bulk_batch_size', 500)));
 
-        $batchSize = max(1, min(SwalaSmsService::MAX_BULK_RECIPIENTS, (int) config('services.swalasms.bulk_batch_size', 500)));
+            foreach (array_chunk($logs->modelKeys(), $batchSize) as $ids) {
+                $key = (string) Str::uuid();
+                FinancialSmsLog::query()->whereIn('id', $ids)->update([
+                    'provider' => 'swalasms',
+                    'provider_batch_key' => $key,
+                    'idempotency_key' => $key,
+                ]);
+                $batches[$key] = $ids;
+            }
 
-        foreach (array_chunk($pooled, $batchSize) as $chunk) {
-            $batches[(string) Str::uuid()] = $chunk;
-        }
+            return $batches;
+        });
 
         foreach ($batches as $key => $ids) {
-            FinancialSmsLog::query()->whereIn('id', $ids)->update([
-                'provider' => 'swalasms',
-                'provider_batch_key' => $key,
-                'idempotency_key' => $key,
-            ]);
-
             try {
-                SendBulkSmsBatch::dispatch($campaign->id, (string) $key);
+                SendBulkSmsBatch::dispatch($campaign->id, (string) $key)->onQueue('bulk');
             } catch (Throwable) {
-                FinancialSmsLog::query()->whereIn('id', $ids)->where('status', 'queued')->update([
-                    'status' => 'failed',
-                    'error_message' => 'The SMS could not be added to the delivery queue.',
-                ]);
+                FinancialSmsLog::query()->whereIn('id', $ids)
+                    ->where('status', 'queued')
+                    ->where('provider_batch_key', $key)
+                    ->update([
+                        'status' => 'failed',
+                        'error_message' => 'The SMS could not be added to the delivery queue.',
+                    ]);
             }
         }
 
-        return count($logs);
+        return array_sum(array_map('count', $batches));
     }
 }

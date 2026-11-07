@@ -264,3 +264,15 @@ The requested CMS is not yet complete. The financial transaction, campaign, rece
 - Tests added to `tests/Feature/UserManagementTest.php`: details page without history, history scoped to the correct user (masked phone, no cross-user leakage), and graceful behavior with the migration pending (column dropped in the in-memory test database). No real SMS was sent.
 - Verification: relevant tests 60/60; full suite 204 tests, 201 passed, with the same 3 pre-existing failures (RegistrationTest x2, ExampleTest). Pint (earlier Pint call had not run because `php` was not on PATH; now applied), `npm run build` and `git diff --check` pass.
 - Action required: an authorized deployment must run `php artisan migrate` (additive; preserves all SMS logs). Until then invitations and resets are disabled by design. `migrate` was not run here.
+## Global loading animation (kkkt-loader)
+- Added CSS-only .kkkt-loader spinner (#25b09b, reduced-motion aware) and a top page-progress bar in resources/css/app.css; <x-page-loader /> in app and guest layouts with an sr-only status (lang/{en,sw}/loading.php).
+- resources/js/loading: latest-request.js (abort + sequence guard, concurrent-safe pending), navigation.js (link-click filter), page-loading.js (form submit busy state, duplicate-submit block, link navigation bar, pageshow/bfcache reset, 60s/15s safety timeouts). Opt out with data-no-loading; download links opted out.
+- Lookups updated (communities leader, member community, envelope member, Sunday Offering): loader, stale-safe requests, translated error state, aria-busy.
+- Tests: tests/Feature/LoadingIndicatorTest.php, tests/js/loading.test.mjs (run: node --test tests/js/loading.test.mjs). Full suite: 206/209, only the 3 baseline failures (RegistrationTest x2, ExampleTest).
+- Limitations: members index/deleted bulk forms use $el.submit() (no loader); no real-browser/device testing; lists are server-rendered so no async table loading state.
+
+## PWA installation and deployment preparation (2026-11-05)
+- PWA: public/manifest.webmanifest, public/sw.js, public/offline.html (EN/SW), public/icons/* (192, 512, maskable 512, apple-touch 180 rendered from the existing favicon.svg), resources/js/pwa/*, x-pwa-head and x-pwa-install components, lang/{en,sw}/pwa.php. Install button is hidden unless the browser supports install (iOS shows instructions).
+- Service worker caches only /build/*, /icons/* and the offline page; never HTML, JSON, uploads or non-GET requests. Registers only on HTTPS or localhost. .htaccess adds manifest MIME and no-cache for sw.js.
+- Deployment: .env.production.example, docs/PWA_AND_DEPLOYMENT_GUIDE.md, docs/build-deploy-package.ps1 (zip without .env, .git, sqlite, dev packages). SMS queue needs a cron queue:work on shared hosting.
+- Tests: tests/Feature/PwaTest.php, tests/js/pwa.test.mjs. Full suite 215/218 (3 baseline failures). Not yet verified: real-device Windows/Android install, Asura Hosting specifics. Nothing deployed or migrated.

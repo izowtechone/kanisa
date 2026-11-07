@@ -1,4 +1,9 @@
 <x-app-layout>
+    @can('retry failed SMS')
+        @if ($senderVerification['status'] !== 'approved')
+            <p role="alert" class="mx-auto max-w-7xl rounded-xl border border-amber-700/60 bg-amber-950/40 p-4 text-sm text-amber-200">{{ __('finance.manual_sms_sender', ['sender' => $senderId ?: '—']) }} {{ __('finance.swala_sender_send_warning') }}</p>
+        @endif
+    @endcan
     @php
         $acceptedCount = $campaign->recipients()->where('status', 'accepted')->count();
         $failedCount = $campaign->recipients()->where('status', 'failed')->count();
@@ -53,6 +58,7 @@
                 ['finance.sms_campaign_failed', $failedCount],
                 ['finance.sms_campaign_pending', $pendingCount],
                 ['finance.sms_campaign_invalid_phones', $campaign->invalid_phone_count],
+                ['finance.sms_campaign_duplicates', $duplicateCount],
                 ['finance.sms_campaign_segments', $campaign->sms_segments],
                 ['finance.sms_campaign_created_at', $campaign->created_at->format('Y-m-d H:i')],
             ] as [$label, $value])
@@ -92,7 +98,12 @@
                                     @endif
                                 </td>
                                 <td class="px-4 py-3 font-mono text-slate-300">{{ $recipient->maskedPhone() }}</td>
-                                <td class="px-4 py-3 text-slate-300">{{ __('finance.sms_statuses.'.$recipient->status) }}</td>
+                                <td class="px-4 py-3 text-slate-300">
+                                    {{ __('finance.sms_statuses.'.$recipient->status) }}
+                                    @if ($recipient->provider_error_code === 'DUPLICATE_RECIPIENT')
+                                        <span class="block text-xs text-amber-300">{{ __('finance.sms_campaign_duplicate_recipient') }}</span>
+                                    @endif
+                                </td>
                                 <td class="px-4 py-3 text-slate-300">{{ $recipient->sms_segments }}</td>
                                 <td class="px-4 py-3 font-mono text-slate-400">{{ $recipient->provider_message_id ?? '—' }}</td>
                             </tr>

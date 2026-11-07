@@ -25,12 +25,18 @@
             </div>
         @endif
 
-        @if (! $smsEnabled || $testMode)
+        @if (! $liveConfigured)
             <div role="alert" class="rounded-xl border border-amber-700/60 bg-amber-950/40 p-4 text-sm text-amber-200">
                 {{ __('finance.bulk_sms_requires_live_configuration') }}
                 @can('manage SMS settings')
                     <a href="{{ route('settings.edit') }}#sms-notifications" class="ml-1 font-semibold underline">{{ __('members.open_settings') }}</a>
                 @endcan
+            </div>
+        @endif
+
+        @if ($senderVerification['status'] !== 'approved')
+            <div role="alert" class="rounded-xl border border-amber-700/60 bg-amber-950/40 p-4 text-sm text-amber-200">
+                {{ __('finance.manual_sms_sender', ['sender' => $senderId ?: '—']) }} {{ __('finance.swala_sender_send_warning') }}
             </div>
         @endif
 
@@ -188,8 +194,9 @@
                     <span class="block text-xs text-slate-500">{{ __('finance.sms_campaign_placeholders') }}</span>
                     @error('message')<span class="text-xs text-rose-300">{{ $message }}</span>@enderror
                 </label>
-                <div class="grid gap-3 sm:grid-cols-3">
-                    <p class="rounded-lg border border-slate-800 bg-[#0b1120] p-3 text-sm text-slate-300" x-text="@js(__('finance.sms_campaign_characters', ['count' => ':count'])).replace(':count', Array.from(message).length)"></p>
+                <div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                    <p class="rounded-lg border border-slate-800 bg-[#0b1120] p-3 text-sm text-slate-300" x-text="@js(__('finance.sms_campaign_characters', ['count' => ':count'])).replace(':count', characterCount)"></p>
+                    <p class="rounded-lg border border-slate-800 bg-[#0b1120] p-3 text-sm text-slate-300">{{ __('finance.sms_campaign_encoding') }}: <span x-text="encodingType"></span></p>
                     <p class="rounded-lg border border-slate-800 bg-[#0b1120] p-3 text-sm text-slate-300">{{ __('finance.sms_campaign_estimated_segments') }}: <span x-text="segmentsPerRecipient"></span></p>
                     <p class="rounded-lg border border-slate-800 bg-[#0b1120] p-3 text-sm text-slate-300">{{ __('finance.sms_campaign_estimated_usage') }}: <span x-text="segmentsPerRecipient * recipientCount"></span></p>
                 </div>
@@ -207,7 +214,7 @@
                     <span>{{ __('finance.sms_campaign_confirmation') }}</span>
                 </label>
                 <div class="flex justify-end">
-                    <button type="submit" :disabled="submitting || recipientCount < 1 || !message.trim() || {{ (! $smsEnabled || $testMode) ? 'true' : 'false' }}" class="rounded-lg bg-blue-600 px-6 py-3 text-sm font-semibold text-white hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-50">
+                    <button type="submit" :disabled="submitting || recipientCount < 1 || !message.trim() || {{ ! $liveConfigured ? 'true' : 'false' }}" class="rounded-lg bg-blue-600 px-6 py-3 text-sm font-semibold text-white hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-50">
                         <span x-show="!submitting">{{ __('finance.sms_campaign_send') }}</span>
                         <span x-cloak x-show="submitting">{{ __('members.saving') }}</span>
                     </button>

@@ -29,6 +29,7 @@ class UpdateManagedUserRequest extends FormRequest
                 Rule::unique('users', 'email')->ignore($this->route('managedUser')),
             ],
             'phone' => ['nullable', 'string', 'max:30'],
+            'phone_verified' => ['sometimes', 'boolean'],
             'member_id' => ['nullable', 'integer', Rule::exists('members', 'id')->whereNull('deleted_at')],
             'role_ids' => ['sometimes', 'array', 'max:20'],
             'role_ids.*' => ['integer', 'distinct', Rule::exists('roles', 'id')->where('guard_name', 'web')],

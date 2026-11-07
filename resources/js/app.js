@@ -1,8 +1,40 @@
 
 
 import Alpine from 'alpinejs';
+import { latestRequest } from './loading/latest-request';
+import { initPageLoading } from './loading/page-loading';
+import { initPwa } from './pwa/install';
+
+const gsmBasicCharacters = new Set(Array.from(
+    " @£$¥èéùìòÇ\nØø\rÅåΔ_ΦΓΛΩΠΨΣΘΞÆæßÉ!\"#¤%&'()*+,-./0123456789:;<=>?¡ABCDEFGHIJKLMNOPQRSTUVWXYZÄÖÑÜ§¿abcdefghijklmnopqrstuvwxyzäöñüà",
+));
+const gsmExtendedCharacters = new Set(Array.from('^{}\\[~]|€\f'));
+const estimateSms = (message) => {
+    const characters = Array.from(message);
+    const isGsm = characters.every((character) =>
+        gsmBasicCharacters.has(character) || gsmExtendedCharacters.has(character),
+    );
+    const units = isGsm
+        ? characters.reduce((total, character) => total + (gsmExtendedCharacters.has(character) ? 2 : 1), 0)
+        : characters.length;
+    const singleSegmentLimit = isGsm ? 160 : 70;
+    const multipartSegmentLimit = isGsm ? 153 : 67;
+
+    return {
+        characters: characters.length,
+        encoding: isGsm ? 'GSM-7' : 'Unicode',
+        segments: characters.length === 0
+            ? 0
+            : units <= singleSegmentLimit
+                ? 1
+                : Math.ceil(units / multipartSegmentLimit),
+    };
+};
 
 window.Alpine = Alpine;
+window.kkktLatestRequest = latestRequest;
+initPageLoading();
+initPwa();
 
 Alpine.data('smsCampaignSelector', (validPhoneIds, matchingCount, confirmMessage) => ({
     selectedIds: [],
@@ -48,22 +80,16 @@ Alpine.data('smsCampaignSelector', (validPhoneIds, matchingCount, confirmMessage
         return this.mode === 'filters' ? this.matchingCount : this.selectedIds.length;
     },
 
+    get characterCount() {
+        return estimateSms(this.message).characters;
+    },
+
+    get encodingType() {
+        return estimateSms(this.message).encoding;
+    },
+
     get segmentsPerRecipient() {
-        if (this.message === '') {
-            return 0;
-        }
-
-        const characters = Array.from(this.message);
-        const unicode = /[^\u0000-\u007f£¥èéùìòÇØøÅåΔΦΓΛΩΠΨΣΘΞÆæßÉÄÖÑÜ§¿äöñüà]/u.test(this.message);
-
-        if (unicode) {
-            return characters.length <= 70 ? 1 : Math.ceil(characters.length / 67);
-        }
-
-        const gsmUnits = characters.reduce((total, character) =>
-            total + ('^{}\\[~]|€'.includes(character) ? 2 : 1), 0);
-
-        return gsmUnits <= 160 ? 1 : Math.ceil(gsmUnits / 153);
+        return estimateSms(this.message).segments;
     },
 
     confirmSubmit(event) {
@@ -79,6 +105,32 @@ Alpine.data('smsCampaignSelector', (validPhoneIds, matchingCount, confirmMessage
 
         this.submitting = true;
         sessionStorage.removeItem('kkkt-sms-campaign-selected');
+    },
+}));
+
+Alpine.data('smsManualComposer', (confirmMessage) => ({
+    message: '',
+    submitting: false,
+
+    get characterCount() {
+        return estimateSms(this.message).characters;
+    },
+
+    get encodingType() {
+        return estimateSms(this.message).encoding;
+    },
+
+    get segments() {
+        return estimateSms(this.message).segments;
+    },
+
+    confirmSubmit(event) {
+        if (!this.message.trim() || !window.confirm(confirmMessage)) {
+            event.preventDefault();
+            return;
+        }
+
+        this.submitting = true;
     },
 }));
 

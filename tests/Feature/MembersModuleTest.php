@@ -166,6 +166,92 @@ test('members can be registered with persistent per-church sequences', function 
     ]);
 });
 
+test('member registration validates and stores mobile phones in E.164', function () {
+    $user = makeMembersTestUser(['create members']);
+    Setting::setValue('church_short_name', 'DODOMA', 'general');
+    $payload = [
+        'envelope_number' => 'PHONE-001',
+        'first_name' => 'Amina',
+        'last_name' => 'Mushi',
+        'gender' => 'Female',
+        'status' => 'active',
+    ];
+
+    $this->actingAs($user)->post(route('members.store'), [...$payload, 'phone' => 'not a number'])
+        ->assertSessionHasErrors(['phone' => __('members.phone_invalid')]);
+    $this->assertDatabaseMissing('members', ['envelope_number' => 'PHONE-001']);
+
+    $this->post(route('members.store'), [...$payload, 'phone' => '00255712345678'])
+        ->assertSessionHasNoErrors()
+        ->assertRedirect(route('members.index'));
+    $this->assertDatabaseHas('members', ['envelope_number' => 'PHONE-001', 'phone' => '+255712345678']);
+});
+
+test('editing a member preserves an unchanged invalid legacy phone but rejects a new invalid phone', function () {
+    $user = makeMembersTestUser(['edit members']);
+    $member = Member::query()->create(membersTestAttributes(['phone' => 'legacy-invalid']));
+    $payload = [
+        'envelope_number' => $member->envelope_number,
+        'first_name' => $member->first_name,
+        'last_name' => $member->last_name,
+        'gender' => $member->gender,
+        'status' => $member->status,
+        'phone' => 'legacy-invalid',
+    ];
+
+    $this->actingAs($user)->put(route('members.update', $member), $payload)
+        ->assertSessionHasNoErrors();
+    expect($member->refresh()->phone)->toBe('legacy-invalid');
+
+    $this->put(route('members.update', $member), [...$payload, 'phone' => 'bad replacement'])
+        ->assertSessionHasErrors(['phone' => __('members.phone_invalid')]);
+    expect($member->refresh()->phone)->toBe('legacy-invalid');
+
+    $this->put(route('members.update', $member), [...$payload, 'phone' => '0712345678'])
+        ->assertSessionHasNoErrors();
+    expect($member->refresh()->phone)->toBe('+255712345678');
+});
+
+test('member imports reject invalid phones and normalize valid phones', function () {
+    Storage::fake('local');
+    $user = makeMembersTestUser(['import members']);
+    Setting::setValue('church_short_name', 'DODOMA', 'general');
+    $file = UploadedFile::fake()->createWithContent('members.csv', membersTestCsv([
+        ['first_name' => 'Valid', 'last_name' => 'Member', 'gender' => 'Female', 'envelope_number' => 'VALID-PHONE', 'phone' => '0712345678'],
+        ['first_name' => 'Invalid', 'last_name' => 'Member', 'gender' => 'Male', 'envelope_number' => 'INVALID-PHONE', 'phone' => 'not a number'],
+    ]));
+
+    $this->actingAs($user)->post(route('members.import.store'), ['file' => $file])
+        ->assertSessionHasNoErrors();
+    $import = MemberImport::query()->firstOrFail();
+    expect($import->valid_rows)->toBe(1)
+        ->and($import->invalid_rows)->toBe(1);
+
+    $this->post(route('members.import.confirm', $import))->assertRedirect();
+    $this->assertDatabaseHas('members', ['envelope_number' => 'VALID-PHONE', 'phone' => '+255712345678']);
+    $this->assertDatabaseMissing('members', ['envelope_number' => 'INVALID-PHONE']);
+});
+
+test('member search finds normalized and legacy phones by local or international prefix', function () {
+    $user = makeMembersTestUser(['view members']);
+    $normalized = Member::query()->create(membersTestAttributes([
+        'phone' => '+255712345678',
+        'envelope_number' => 'NORMALIZED-PHONE',
+    ]));
+    $legacy = Member::query()->create(membersTestAttributes([
+        'membership_number' => 'KKKT-TEST-0002',
+        'envelope_number' => 'LEGACY-PHONE',
+        'phone' => '0712345679',
+    ]));
+
+    $this->actingAs($user)->get(route('members.index', ['search' => '071234']))
+        ->assertOk()
+        ->assertViewHas('members', fn ($members): bool => $members->contains($normalized) && $members->contains($legacy));
+    $this->get(route('members.index', ['search' => '+25571234']))
+        ->assertOk()
+        ->assertViewHas('members', fn ($members): bool => $members->contains($normalized) && $members->contains($legacy));
+});
+
 test('soft deleted membership numbers and envelope numbers remain reserved', function () {
     Setting::setValue('church_short_name', 'ARUSHA', 'general');
     $previousMember = Member::query()->create(membersTestAttributes([

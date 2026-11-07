@@ -14,6 +14,7 @@ use App\Services\BulkSmsBatchDispatcher;
 use App\Services\BulkSmsRecipientSelector;
 use App\Services\FinancialSmsMessageBuilder;
 use App\Services\SmsSegmentEstimator;
+use App\Services\SwalaSmsException;
 use App\Services\SwalaSmsService;
 use Illuminate\Http\Client\Request as HttpRequest;
 use Illuminate\Support\Facades\Http;
@@ -74,6 +75,16 @@ function enableBulkSmsCampaignDelivery(): void
     FinancialSetting::setValue('swala_api_key', 'swl_live_campaignkey');
     FinancialSetting::setValue('swala_sender_id', 'KKKT');
 }
+
+it('finds an E.164 recipient by a local phone prefix in campaign selection', function () {
+    $user = bulkSmsCampaignTestUser(['send bulk SMS']);
+    $member = bulkSmsCampaignTestMember(['sms_opt_in' => true, 'phone' => '+255712345678']);
+
+    $this->actingAs($user)
+        ->get(route('finance.sms.campaigns.create', ['search' => '071234']))
+        ->assertOk()
+        ->assertViewHas('members', fn ($members): bool => $members->contains($member));
+});
 
 it('queues a campaign for an authorized user with an eligible opted-in recipient', function () {
     Queue::fake([PrepareBulkSmsCampaign::class]);
@@ -216,6 +227,131 @@ it('prepares only opted-in recipients with valid phones and personalizes queued 
     Http::assertNothingSent();
 });
 
+it('deduplicates normalized recipients across batches before any provider submission', function () {
+    Http::preventStrayRequests();
+    Http::fake(['https://api.swalasms.com/v2/sms/send-bulk' => Http::response([
+        'success' => true,
+        'data' => ['uid' => 'campaign-1', 'messages' => [
+            ['to' => '+255712345678', 'message_uid' => 'message-1', 'status' => 'queued', 'units' => 1],
+        ], 'failures' => []],
+    ], 202)]);
+    enableBulkSmsCampaignDelivery();
+    $creator = bulkSmsCampaignTestUser(['view SMS campaigns']);
+    $first = bulkSmsCampaignTestMember(['sms_opt_in' => true, 'phone' => '0712345678']);
+    $second = bulkSmsCampaignTestMember(['sms_opt_in' => true, 'phone' => '00255712345678']);
+    $campaign = bulkSmsCampaignTestCampaign($creator);
+    $firstKey = (string) Str::uuid();
+    $secondKey = (string) Str::uuid();
+    $firstLog = FinancialSmsLog::query()->create([
+        'bulk_sms_campaign_id' => $campaign->id, 'member_id' => $first->id,
+        'notification_type' => 'bulk_campaign', 'phone' => '255712345678',
+        'message' => 'Hello', 'status' => 'queued', 'provider_batch_key' => $firstKey, 'is_test' => false,
+    ]);
+    $secondLog = FinancialSmsLog::query()->create([
+        'bulk_sms_campaign_id' => $campaign->id, 'member_id' => $second->id,
+        'notification_type' => 'bulk_campaign', 'phone' => '+255712345678',
+        'message' => 'Hello', 'status' => 'queued', 'provider_batch_key' => $secondKey, 'is_test' => false,
+    ]);
+
+    (new SendBulkSmsBatch($campaign->id, $secondKey))->handle(app(SwalaSmsService::class), app(SmsSegmentEstimator::class));
+    (new SendBulkSmsBatch($campaign->id, $firstKey))->handle(app(SwalaSmsService::class), app(SmsSegmentEstimator::class));
+
+    expect($secondLog->fresh()->status)->toBe('cancelled')
+        ->and($secondLog->fresh()->provider_error_code)->toBe('DUPLICATE_RECIPIENT')
+        ->and($secondLog->fresh()->attempts)->toBe(0)
+        ->and($firstLog->fresh()->status)->toBe('accepted');
+    Http::assertSentCount(1);
+    Http::assertSent(fn (HttpRequest $request): bool => count($request['recipients']) === 1
+        && $request['recipients'][0]['to'] === '+255712345678');
+    $this->actingAs($creator)->get(route('finance.sms.campaigns.show', $campaign))
+        ->assertOk()->assertSee(__('finance.sms_campaign_duplicate_recipient'));
+});
+
+it('does not send a duplicate after a prior campaign submission became uncertain', function () {
+    Http::preventStrayRequests();
+    $creator = bulkSmsCampaignTestUser([]);
+    $first = bulkSmsCampaignTestMember(['sms_opt_in' => true]);
+    $second = bulkSmsCampaignTestMember(['sms_opt_in' => true, 'phone' => '+255712345678']);
+    $campaign = bulkSmsCampaignTestCampaign($creator);
+    $key = (string) Str::uuid();
+    $prior = FinancialSmsLog::query()->create([
+        'bulk_sms_campaign_id' => $campaign->id, 'member_id' => $first->id,
+        'notification_type' => 'bulk_campaign', 'phone' => '255712345678',
+        'message' => 'Hello', 'status' => 'sending', 'attempts' => 1, 'provider_batch_key' => (string) Str::uuid(), 'is_test' => false,
+    ]);
+    $duplicate = FinancialSmsLog::query()->create([
+        'bulk_sms_campaign_id' => $campaign->id, 'member_id' => $second->id,
+        'notification_type' => 'bulk_campaign', 'phone' => '255712345678',
+        'message' => 'Hello', 'status' => 'queued', 'provider_batch_key' => $key, 'is_test' => false,
+    ]);
+
+    (new SendBulkSmsBatch($campaign->id, $key))->handle(app(SwalaSmsService::class), app(SmsSegmentEstimator::class));
+
+    expect($duplicate->fresh()->status)->toBe('cancelled')
+        ->and($duplicate->fresh()->provider_error_code)->toBe('DUPLICATE_RECIPIENT')
+        ->and($prior->fresh()->status)->toBe('sending');
+    Http::assertNothingSent();
+});
+
+it('guards legacy single-recipient campaign jobs against earlier accepted recipients', function () {
+    Http::preventStrayRequests();
+    $creator = bulkSmsCampaignTestUser([]);
+    $first = bulkSmsCampaignTestMember(['sms_opt_in' => true]);
+    $second = bulkSmsCampaignTestMember(['sms_opt_in' => true, 'phone' => '+255712345678']);
+    $campaign = bulkSmsCampaignTestCampaign($creator);
+    FinancialSmsLog::query()->create([
+        'bulk_sms_campaign_id' => $campaign->id, 'member_id' => $first->id,
+        'notification_type' => 'bulk_campaign', 'phone' => '255712345678', 'message' => 'Hello',
+        'status' => 'accepted', 'attempts' => 1, 'provider_message_id' => 'accepted-1', 'is_test' => false,
+    ]);
+    $duplicate = FinancialSmsLog::query()->create([
+        'bulk_sms_campaign_id' => $campaign->id, 'member_id' => $second->id,
+        'notification_type' => 'bulk_campaign', 'phone' => '+255712345678',
+        'message' => 'Hello', 'status' => 'queued', 'is_test' => false,
+    ]);
+
+    (new SendFinancialSms($duplicate->id))->handle(app(SwalaSmsService::class), app(SmsSegmentEstimator::class));
+
+    expect($duplicate->fresh()->status)->toBe('cancelled')
+        ->and($duplicate->fresh()->provider_error_code)->toBe('DUPLICATE_RECIPIENT')
+        ->and($duplicate->fresh()->attempts)->toBe(0);
+    Http::assertNothingSent();
+});
+
+it('marks a failed in-flight bulk submission as unknown without replacing its key', function () {
+    $creator = bulkSmsCampaignTestUser([]);
+    $campaign = bulkSmsCampaignTestCampaign($creator);
+    $key = (string) Str::uuid();
+    $log = FinancialSmsLog::query()->create([
+        'bulk_sms_campaign_id' => $campaign->id, 'notification_type' => 'bulk_campaign',
+        'phone' => '255712345678', 'message' => 'Hello', 'status' => 'sending',
+        'attempts' => 1, 'provider_batch_key' => $key, 'idempotency_key' => $key, 'is_test' => false,
+    ]);
+
+    (new SendBulkSmsBatch($campaign->id, $key))->failed(new RuntimeException('worker failed'));
+
+    expect($log->fresh()->status)->toBe('failed')
+        ->and($log->fresh()->provider_acceptance_state)->toBe(SwalaSmsException::UNKNOWN)
+        ->and($log->fresh()->idempotency_key)->toBe($key);
+});
+
+it('records a reason when an administrator cancels queued campaign messages', function () {
+    $creator = bulkSmsCampaignTestUser(['cancel SMS campaigns']);
+    $campaign = bulkSmsCampaignTestCampaign($creator);
+    $member = bulkSmsCampaignTestMember(['sms_opt_in' => true]);
+    $log = FinancialSmsLog::query()->create([
+        'bulk_sms_campaign_id' => $campaign->id, 'member_id' => $member->id,
+        'notification_type' => 'bulk_campaign', 'phone' => '255712345678',
+        'message' => 'Hello', 'status' => 'queued', 'is_test' => false,
+    ]);
+
+    $this->actingAs($creator)->post(route('finance.sms.campaigns.cancel', $campaign))->assertRedirect();
+
+    expect($campaign->fresh()->status)->toBe('cancelled')
+        ->and($log->fresh()->status)->toBe('cancelled')
+        ->and($log->fresh()->error_message)->toBe(__('finance.sms_campaign_cancelled_by_admin'));
+});
+
 it('skips a queued bulk message when the member withdraws consent before delivery', function () {
     Http::preventStrayRequests();
 
@@ -235,10 +371,10 @@ it('skips a queued bulk message when the member withdraws consent before deliver
     ]);
     $member->update(['sms_opt_in' => false]);
 
-    (new SendFinancialSms($log->id))->handle(app(SwalaSmsService::class));
+    (new SendFinancialSms($log->id))->handle(app(SwalaSmsService::class), app(SmsSegmentEstimator::class));
 
     expect($log->fresh()->status)->toBe('cancelled')
-        ->and($campaign->fresh()->status)->toBe('completed');
+        ->and($campaign->fresh()->status)->toBe('failed');
     $this->assertDatabaseCount('financial_sms_attempts', 0);
     Http::assertNothingSent();
 });
@@ -246,7 +382,7 @@ it('skips a queued bulk message when the member withdraws consent before deliver
 it('marks a campaign recipient failed when SwalaSMS rejects the submission', function () {
     Http::preventStrayRequests();
     Http::fake([
-        'https://api.swalasms.com/v1/sms/messages' => Http::response(['success' => false, 'message' => 'Rejected', 'error_code' => 'INVALID_RECIPIENT', 'acceptance_state' => 'DEFINITELY_NOT_ACCEPTED'], 422),
+        'https://api.swalasms.com/v2/sms/send-bulk' => Http::response(['success' => false, 'message' => 'Rejected', 'error_code' => 'INVALID_RECIPIENT', 'acceptance_state' => 'DEFINITELY_NOT_ACCEPTED'], 422),
     ]);
 
     $creator = bulkSmsCampaignTestUser(['send bulk SMS']);
@@ -265,12 +401,12 @@ it('marks a campaign recipient failed when SwalaSMS rejects the submission', fun
     ]);
     enableBulkSmsCampaignDelivery();
 
-    (new SendFinancialSms($log->id))->handle(app(SwalaSmsService::class));
+    (new SendFinancialSms($log->id))->handle(app(SwalaSmsService::class), app(SmsSegmentEstimator::class));
 
     expect($log->fresh()->status)->toBe('failed')
         ->and(FinancialSmsAttempt::query()->firstOrFail()->status)->toBe('failed')
         ->and($campaign->fresh()->status)->toBe('failed');
-    Http::assertSent(fn (HttpRequest $request): bool => $request->url() === 'https://api.swalasms.com/v1/sms/messages');
+    Http::assertSent(fn (HttpRequest $request): bool => $request->url() === 'https://api.swalasms.com/v2/sms/send-bulk');
 });
 
 it('retries failed campaign recipients without re-queuing cancelled recipients', function () {

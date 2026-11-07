@@ -2,6 +2,7 @@
 
 namespace App\Http\Requests;
 
+use App\Rules\MobilePhone;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
 
@@ -22,7 +23,7 @@ class StoreMemberRequest extends FormRequest
             'gender' => ['required', Rule::in(['Male', 'Female'])],
             'date_of_birth' => ['nullable', 'date_format:Y-m-d', 'before_or_equal:today'],
             'membership_date' => ['nullable', 'date_format:Y-m-d', 'before_or_equal:today'],
-            'phone' => ['nullable', 'string', 'max:30'],
+            'phone' => ['nullable', 'string', 'max:30', new MobilePhone],
             'email' => ['nullable', 'email', 'max:255'],
             'address' => ['nullable', 'string', 'max:2000'],
             'status' => ['required', Rule::in(['active', 'inactive'])],

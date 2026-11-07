@@ -19,7 +19,7 @@
 
                 <div class="flex flex-wrap gap-3">
                     @can('export members')
-                        <a
+                        <a data-no-loading
                             href="{{ route('members.export', array_filter($filters, static fn ($value): bool => $value !== null && $value !== '')) }}"
                             class="rounded-xl border border-gray-700 px-5 py-3 text-sm font-semibold text-gray-200 transition hover:bg-gray-800"
                         >

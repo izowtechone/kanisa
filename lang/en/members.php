@@ -24,6 +24,7 @@ return [
     'envelope_number' => 'Envelope number',
     'gender' => 'Gender',
     'phone' => 'Phone',
+    'phone_invalid' => 'Enter a valid mobile number. Use an international country code for numbers outside Tanzania.',
     'sms_opt_in' => 'Consents to church SMS',
     'sms_opt_in_help' => 'Only members who have explicitly opted in can receive bulk SMS. Existing members remain opted out until consent is recorded.',
     'membership_date' => 'Membership date',

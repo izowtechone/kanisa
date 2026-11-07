@@ -27,6 +27,7 @@ return [
     'sms_history' => 'SMS History',
     'sms_campaigns' => 'SMS and Messaging',
     'system_settings' => 'System Settings',
+    'login_security' => 'Login security',
     'language' => 'Language',
     'language_sw' => 'Kiswahili',
     'language_en' => 'English',

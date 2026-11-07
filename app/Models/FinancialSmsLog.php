@@ -35,6 +35,8 @@ class FinancialSmsLog extends Model
         'delivery_status',
         'delivery_checked_at',
         'provider',
+        'sender_id',
+        'encoding',
         'idempotency_key',
         'provider_batch_key',
         'provider_campaign_uid',
@@ -85,9 +87,32 @@ class FinancialSmsLog extends Model
             ->orderBy('attempt_number');
     }
 
+    public function statusEvents(): HasMany
+    {
+        return $this->hasMany(FinancialSmsStatusEvent::class, 'financial_sms_log_id')
+            ->latest('id');
+    }
+
     public function isFinalDelivery(): bool
     {
         return in_array($this->delivery_status, ['delivered', 'failed'], true);
+    }
+
+    public function recordStatusEvent(
+        ?string $previousStatus,
+        string $status,
+        string $source,
+        ?string $failureReason = null,
+        ?CarbonInterface $eventAt = null,
+    ): void {
+        FinancialSmsStatusEvent::query()->create([
+            'financial_sms_log_id' => $this->id,
+            'previous_status' => $previousStatus,
+            'status' => $status,
+            'source' => $source,
+            'failure_reason' => $status === 'failed' ? mb_substr((string) $failureReason, 0, 255) : null,
+            'provider_event_at' => $eventAt ?? now(),
+        ]);
     }
 
     /**
@@ -99,6 +124,7 @@ class FinancialSmsLog extends Model
         ?CarbonInterface $eventAt = null,
         ?string $failureReason = null,
         ?CarbonInterface $deliveredAt = null,
+        string $source = 'poll',
     ): bool {
         $isFinal = in_array($status, ['delivered', 'failed'], true);
         $timezone = config('app.timezone');
@@ -118,6 +144,7 @@ class FinancialSmsLog extends Model
             return false;
         }
 
+        $previousStatus = $this->delivery_status;
         $this->forceFill([
             'provider_status' => $status,
             'delivery_status' => $status,
@@ -126,6 +153,8 @@ class FinancialSmsLog extends Model
             'delivered_at' => $status === 'delivered' ? ($deliveredAt ?? $eventAt ?? now()) : null,
             'provider_failure_reason' => $status === 'failed' ? mb_substr((string) $failureReason, 0, 255) : null,
         ])->save();
+
+        $this->recordStatusEvent($previousStatus, $status, $source, $failureReason, $eventAt);
 
         return true;
     }

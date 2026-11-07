@@ -43,6 +43,7 @@ return [
 
     'swalasms' => [
         'base_url' => env('SWALASMS_BASE_URL', 'https://api.swalasms.com'),
+        'timeout' => max(1, min(60, (int) env('SWALASMS_TIMEOUT', 20))),
         'requests_per_minute' => (int) env('SWALASMS_REQUESTS_PER_MINUTE', 30),
         'bulk_batch_size' => max(1, min(1000, (int) env('SWALASMS_BULK_BATCH_SIZE', 500))),
     ],

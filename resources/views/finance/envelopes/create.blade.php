@@ -8,21 +8,30 @@
             memberText: '',
             found: false,
             saving: false,
+            req: kkktLatestRequest(),
             lookupUrl: @js(route('finance.envelopes.lookup')),
             async lookupMember() {
                 this.memberText = '';
                 this.found = false;
-                if (!this.envelope.trim()) return;
+                if (!this.envelope.trim()) { this.req.cancel(); return; }
                 const url = new URL(this.lookupUrl);
                 url.searchParams.set('envelope_code', this.envelope.trim());
-                const response = await fetch(url, { headers: { 'Accept': 'application/json' } });
-                if (!response.ok) {
-                    this.memberText = @js(__('finance.member_not_found'));
-                    return;
+                try {
+                    const outcome = await this.req.run(async (signal) => {
+                        const response = await fetch(url, { headers: { 'Accept': 'application/json' }, signal });
+                        return { ok: response.ok, member: response.ok ? await response.json() : null };
+                    });
+                    if (outcome.stale) return;
+                    if (!outcome.value.ok) {
+                        this.memberText = @js(__('finance.member_not_found'));
+                        return;
+                    }
+                    const member = outcome.value.member;
+                    this.memberText = @js(__('finance.member_lookup_result', ['name' => ':name', 'number' => ':number'])).replace(':name', member.name).replace(':number', member.membership_number);
+                    this.found = true;
+                } catch {
+                    this.memberText = @js(__('loading.failed'));
                 }
-                const member = await response.json();
-                this.memberText = @js(__('finance.member_lookup_result', ['name' => ':name', 'number' => ':number'])).replace(':name', member.name).replace(':number', member.membership_number);
-                this.found = true;
             }
         }" @submit="saving = true" class="space-y-6 rounded-2xl border border-slate-800 bg-[#111a2e] p-5 sm:p-8">
             @csrf
@@ -34,7 +43,8 @@
                     <label for="envelope_code" class="block text-sm text-slate-300">{{ __('finance.envelope_code') }} <span class="text-rose-400">*</span></label>
                     <div class="flex flex-col gap-2 sm:flex-row"><input id="envelope_code" name="envelope_code" required maxlength="255" x-model="envelope" value="{{ old('envelope_code') }}" class="min-w-0 flex-1 rounded-lg border-slate-700 bg-[#0b1120] text-slate-100"><button type="button" @click="lookupMember" class="rounded-lg border border-blue-500/40 bg-blue-500/10 px-4 py-2.5 text-sm font-semibold text-blue-300 hover:bg-blue-500/20">{{ __('finance.lookup_member') }}</button></div>
                     <p class="text-xs text-slate-500">{{ __('finance.member_number_hint') }}</p>
-                    <p x-cloak x-show="memberText" aria-live="polite" :class="found ? 'text-emerald-300' : 'text-rose-300'" class="text-sm" x-text="memberText"></p>
+                    <p x-cloak x-show="req.pending" role="status" class="flex items-center gap-2 text-sm text-slate-400"><span class="kkkt-loader" aria-hidden="true"></span>{{ __('loading.loading') }}</p>
+                    <p x-cloak x-show="memberText && !req.pending" aria-live="polite" :class="found ? 'text-emerald-300' : 'text-rose-300'" class="text-sm" x-text="memberText"></p>
                     @error('envelope_code')<span class="text-xs text-rose-300">{{ $message }}</span>@enderror
                 </div>
                 <label class="space-y-2 text-sm text-slate-300"><span>{{ __('finance.amount') }} <span class="text-rose-400">*</span></span><input name="amount" required inputmode="decimal" value="{{ old('amount') }}" class="w-full rounded-lg border-slate-700 bg-[#0b1120] text-slate-100">@error('amount')<span class="text-xs text-rose-300">{{ $message }}</span>@enderror</label>

@@ -15,6 +15,7 @@
         <link href="https://fonts.bunny.net/css?family=figtree:400,500,600,700&display=swap" rel="stylesheet">
 
         <style>{!! $brandCss !!}</style>
+        <x-pwa-head />
         @vite(['resources/css/app.css', 'resources/js/app.js'])
     </head>
     <body class="bg-surface-base font-sans text-slate-200 antialiased">
@@ -24,6 +25,7 @@
             @keydown.escape.window="if (window.innerWidth < 1024) sidebarOpen = false"
             class="min-h-screen"
         >
+            <x-page-loader />
             <a href="#main-content" class="skip-link">{{ __('dashboard.skip_to_content') }}</a>
 
             <div
@@ -117,6 +119,7 @@
                 </nav>
 
                 <div class="border-t border-slate-800 p-4">
+                    <x-pwa-install />
                     <a href="{{ route('profile.edit') }}" class="flex items-center gap-3 rounded-control p-2 transition hover:bg-slate-800">
                         <span class="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-blue-500/30 bg-blue-600/20 text-sm font-bold text-blue-300" aria-hidden="true">
                             {{ strtoupper(mb_substr(Auth::user()->name, 0, 1)) }}

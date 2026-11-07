@@ -1,11 +1,13 @@
 <?php
 
 use App\Jobs\SendFinancialSms;
+use App\Jobs\SendLoginOtp;
 use App\Models\FinancialSetting;
 use App\Models\FinancialSmsLog;
 use App\Models\Member;
 use App\Models\Setting;
 use App\Models\User;
+use App\Services\SmsSegmentEstimator;
 use App\Services\SwalaSmsException;
 use App\Services\SwalaSmsService;
 use Database\Seeders\RoleSeeder;
@@ -195,7 +197,13 @@ it('prevents direct permission escalation and allows authorized users to clear a
     expect($managedUser->fresh()->directPermissions)->toBeEmpty();
 });
 
-it('blocks suspended accounts at login and records the last login for active accounts', function () {
+it('blocks suspended accounts and requires otp for active accounts before recording the login', function () {
+    config(['queue.default' => 'database']);
+    FinancialSetting::setValue('swala_enabled', '1');
+    FinancialSetting::setValue('swala_test_mode', '0');
+    FinancialSetting::setValue('swala_api_key', 'swl_live_login_test');
+    FinancialSetting::setValue('swala_sender_id', 'KKKT');
+    Queue::fake([SendLoginOtp::class]);
     $suspendedUser = User::factory()->create([
         'email' => 'suspended@example.test',
         'status' => 'suspended',
@@ -212,15 +220,17 @@ it('blocks suspended accounts at login and records the last login for active acc
     $activeUser = User::factory()->create([
         'email' => 'active@example.test',
         'status' => 'active',
+        'phone' => '+255712345678',
+        'phone_verified_at' => now(),
     ]);
 
     $this->post(route('login'), [
         'email' => $activeUser->email,
         'password' => 'password',
-    ])->assertRedirect(route('dashboard'));
+    ])->assertRedirect(route('login.otp.show'));
 
-    expect($activeUser->fresh()->last_login_at?->toDateTimeString())
-        ->toBe('2026-11-02 12:00:00');
+    $this->assertGuest();
+    expect($activeUser->fresh()->last_login_at)->toBeNull();
 });
 
 it('prevents deactivating the last active super administrator', function () {
@@ -250,6 +260,40 @@ it('prevents demoting the last active super administrator', function () {
         ->assertSessionHasErrors('status');
 
     expect($managedUser->fresh()->isSuperAdmin())->toBeTrue();
+});
+
+it('allows a Super Admin to attest to an unchanged phone and clears verification when it changes', function () {
+    $administrator = userManagementTestActor([]);
+    $managedUser = User::factory()->create([
+        'phone' => '+255712345678',
+        'phone_verified_at' => null,
+    ]);
+
+    $this->actingAs($administrator)
+        ->put(route('users.update', $managedUser), [
+            'name' => $managedUser->name,
+            'email' => $managedUser->email,
+            'phone' => '+255712345678',
+            'phone_verified' => '1',
+        ])
+        ->assertRedirect(route('users.show', $managedUser));
+
+    expect($managedUser->fresh()->phone_verified_at)->not->toBeNull();
+
+    $this->actingAs($administrator)
+        ->put(route('users.update', $managedUser), [
+            'name' => $managedUser->name,
+            'email' => $managedUser->email,
+            'phone' => '+255798765432',
+            'phone_verified' => '1',
+        ])
+        ->assertRedirect(route('users.show', $managedUser));
+
+    expect($managedUser->fresh()->phone_verified_at)->toBeNull();
+    $this->assertDatabaseHas('login_security_events', [
+        'user_id' => $managedUser->id,
+        'event' => 'phone_verification_changed',
+    ]);
 });
 
 it('prevents a Super Admin from deleting their own account', function () {
@@ -337,7 +381,7 @@ it('keeps the account when invitation SMS delivery fails and retries without dup
             acceptanceState: SwalaSmsException::NOT_ACCEPTED,
         ));
 
-    (new SendFinancialSms($smsLog->id))->handle($gateway);
+    (new SendFinancialSms($smsLog->id))->handle($gateway, app(SmsSegmentEstimator::class));
 
     expect(User::query()->whereKey($managedUser->id)->exists())->toBeTrue()
         ->and($smsLog->fresh()->status)->toBe('failed');

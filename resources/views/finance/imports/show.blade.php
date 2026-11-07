@@ -25,7 +25,7 @@
             @endforeach
         </section>
         <div class="flex flex-wrap gap-3">
-            @if ($financialImport->invalid_rows > 0)<a href="{{ route('finance.imports.report', $financialImport) }}" class="rounded-lg border border-slate-700 px-4 py-2.5 text-sm font-semibold text-slate-200 hover:bg-slate-800">{{ __('finance.download_rejected_rows') }}</a>@endif
+            @if ($financialImport->invalid_rows > 0)<a data-no-loading href="{{ route('finance.imports.report', $financialImport) }}" class="rounded-lg border border-slate-700 px-4 py-2.5 text-sm font-semibold text-slate-200 hover:bg-slate-800">{{ __('finance.download_rejected_rows') }}</a>@endif
             @if ($financialImport->status === 'preview' && $financialImport->valid_rows > 0)
                 <form method="POST" action="{{ route('finance.imports.confirm', $financialImport) }}" onsubmit="return window.confirm(@js(__('finance.confirm_import').' ('.$financialImport->valid_rows.')'))">@csrf<button class="rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-blue-500">{{ __('finance.confirm_import') }}</button></form>
             @endif

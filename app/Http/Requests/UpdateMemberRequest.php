@@ -4,6 +4,7 @@ namespace App\Http\Requests;
 
 use App\Models\Community;
 use App\Models\Member;
+use App\Rules\MobilePhone;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\Validator;
@@ -32,7 +33,7 @@ class UpdateMemberRequest extends FormRequest
             'gender' => ['required', Rule::in(['Male', 'Female'])],
             'date_of_birth' => ['nullable', 'date_format:Y-m-d', 'before_or_equal:today'],
             'membership_date' => ['nullable', 'date_format:Y-m-d', 'before_or_equal:today'],
-            'phone' => ['nullable', 'string', 'max:30'],
+            'phone' => ['nullable', 'string', 'max:30', new MobilePhone($member instanceof Member ? $member->phone : null)],
             'email' => ['nullable', 'email', 'max:255'],
             'address' => ['nullable', 'string', 'max:2000'],
             'status' => ['required', Rule::in(['active', 'inactive'])],

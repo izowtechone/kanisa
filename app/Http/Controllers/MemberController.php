@@ -8,6 +8,7 @@ use App\Models\Community;
 use App\Models\Member;
 use App\Models\Setting;
 use App\Services\MembershipNumberGenerator;
+use App\Services\MobilePhoneNumber;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\QueryException;
 use Illuminate\Http\RedirectResponse;
@@ -20,6 +21,8 @@ use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class MemberController extends Controller
 {
+    public function __construct(private readonly MobilePhoneNumber $phones) {}
+
     public function index(Request $request): View
     {
         $filters = $this->validatedFilters($request);
@@ -53,8 +56,13 @@ class MemberController extends Controller
     public function store(
         StoreMemberRequest $request,
         MembershipNumberGenerator $membershipNumbers,
+        MobilePhoneNumber $phones,
     ): RedirectResponse {
         $validated = $request->validated();
+
+        if (! empty($validated['phone'])) {
+            $validated['phone'] = $phones->normalize($validated['phone']);
+        }
 
         try {
             DB::transaction(function () use ($validated, $membershipNumbers): void {
@@ -98,19 +106,25 @@ class MemberController extends Controller
         ]);
     }
 
-    public function update(UpdateMemberRequest $request, Member $member): RedirectResponse
+    public function update(UpdateMemberRequest $request, Member $member, MobilePhoneNumber $phones): RedirectResponse
     {
+        $validated = $request->validated();
+
+        if (! empty($validated['phone']) && $validated['phone'] !== $member->phone) {
+            $validated['phone'] = $phones->normalize($validated['phone']);
+        }
+
         try {
-            DB::transaction(function () use ($member, $request): void {
+            DB::transaction(function () use ($member, $validated): void {
                 $lockedMember = Member::query()->lockForUpdate()->findOrFail($member->id);
-                $communityId = $request->validated('community_id');
+                $communityId = $validated['community_id'] ?? null;
 
                 $this->lockCommunityForAssignment(
                     $communityId,
                     $lockedMember->community_id,
                 );
 
-                $lockedMember->update($request->validated());
+                $lockedMember->update($validated);
             });
         } catch (QueryException $exception) {
             if (! $this->isEnvelopeNumberConflict($exception)) {
@@ -220,7 +234,7 @@ class MemberController extends Controller
 
             foreach ($terms as $term) {
                 $like = '%'.$term.'%';
-                $query->where(function (Builder $query) use ($like): void {
+                $query->where(function (Builder $query) use ($like, $term): void {
                     $query->where('first_name', 'like', $like)
                         ->orWhere('middle_name', 'like', $like)
                         ->orWhere('last_name', 'like', $like)
@@ -231,6 +245,10 @@ class MemberController extends Controller
                             $communityQuery->where('name', 'like', $like)
                                 ->orWhere('code', 'like', $like);
                         });
+
+                    foreach ($this->phones->searchAlternates($term) as $alternate) {
+                        $query->orWhere('phone', 'like', '%'.$alternate.'%');
+                    }
                 });
             }
         }

@@ -1,0 +1,30 @@
+<?php
+
+return [
+    'eyebrow' => 'Access control',
+    'title' => 'Login security events',
+    'description' => 'Review recent login and verification activity. Passwords and one-time codes are never recorded.',
+    'time' => 'Time',
+    'account' => 'Account',
+    'event' => 'Event',
+    'ip' => 'IP address',
+    'details' => 'Details',
+    'unknown_account' => 'Unknown account',
+    'empty' => 'No security events have been recorded.',
+    'events' => [
+        'password_verified' => 'Password verified',
+        'password_failed' => 'Password verification failed',
+        'phone_verification_changed' => 'Account phone verification changed',
+        'otp_unavailable' => 'OTP verification unavailable',
+        'otp_requested' => 'Verification code requested',
+        'otp_resent' => 'Verification code resent',
+        'otp_invalid' => 'Incorrect verification code',
+        'otp_expired' => 'Verification code expired',
+        'otp_locked' => 'Verification challenge locked',
+        'otp_verified' => 'Login verified',
+        'otp_cancelled' => 'Verification cancelled',
+        'otp_delivery_failed' => 'Verification SMS delivery failed',
+        'otp_sms_submitted' => 'Verification SMS accepted by provider',
+        'otp_sms_submission_failed' => 'Verification SMS submission failed',
+    ],
+];

@@ -5,6 +5,7 @@ namespace App\Services;
 use App\Models\Member;
 use App\Models\MemberImport;
 use App\Models\User;
+use App\Rules\MobilePhone;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\QueryException;
 use Illuminate\Http\UploadedFile;
@@ -25,6 +26,7 @@ class MemberImportService
     public function __construct(
         private readonly MemberSpreadsheet $spreadsheet,
         private readonly MembershipNumberGenerator $membershipNumbers,
+        private readonly MobilePhoneNumber $phones,
     ) {}
 
     public function preview(User $user, UploadedFile $file): MemberImport
@@ -104,6 +106,16 @@ class MemberImportService
             foreach ($rows as &$row) {
                 if ($row['errors'] !== []) {
                     continue;
+                }
+
+                if (! empty($row['values']['phone'])) {
+                    try {
+                        $row['values']['phone'] = $this->phones->normalize($row['values']['phone']);
+                    } catch (RuntimeException) {
+                        $row['errors'][] = __('members.phone_invalid');
+
+                        continue;
+                    }
                 }
 
                 $envelopeNumber = $row['values']['envelope_number'];
@@ -279,13 +291,17 @@ class MemberImportService
                 'last_name' => ['required', 'string', 'max:255'],
                 'gender' => ['required', Rule::in(['Male', 'Female'])],
                 'date_of_birth' => ['nullable', 'date_format:Y-m-d', 'before_or_equal:today'],
-                'phone' => ['nullable', 'string', 'max:30'],
+                'phone' => ['nullable', 'string', 'max:30', new MobilePhone],
                 'email' => ['nullable', 'email', 'max:255'],
                 'address' => ['nullable', 'string', 'max:2000'],
                 'envelope_number' => ['required', 'string', 'max:255'],
                 'membership_date' => ['nullable', 'date_format:Y-m-d', 'before_or_equal:today'],
                 'status' => ['nullable', Rule::in(['active', 'inactive'])],
             ], $this->validationMessages(), $this->attributes());
+
+            if (! $validator->errors()->has('phone') && $values['phone'] !== null) {
+                $values['phone'] = $this->phones->normalize($values['phone']);
+            }
 
             $rows[] = [
                 'row_number' => $spreadsheetRow['row_number'],

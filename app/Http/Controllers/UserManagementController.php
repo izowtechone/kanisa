@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Http\Requests\StoreManagedUserRequest;
 use App\Http\Requests\UpdateManagedUserPermissionsRequest;
 use App\Http\Requests\UpdateManagedUserRequest;
+use App\Models\LoginSecurityEvent;
 use App\Models\Member;
 use App\Models\User;
 use App\Services\UserInvitationService;
@@ -147,6 +148,8 @@ class UserManagementController extends Controller
     public function update(UpdateManagedUserRequest $request, User $managedUser): RedirectResponse
     {
         $validated = $request->validated();
+        $previousPhoneVerifiedAt = $managedUser->phone_verified_at;
+        $previousPhone = $managedUser->phone;
         $roles = null;
 
         if ($request->exists('role_ids')) {
@@ -161,12 +164,30 @@ class UserManagementController extends Controller
         DB::transaction(function () use ($validated, $managedUser, $roles): void {
             $managedUser = User::query()->lockForUpdate()->findOrFail($managedUser->id);
             $this->protectLastActiveSuperAdmin($managedUser, $managedUser->status, $roles);
-            $managedUser->fill(Arr::only($validated, ['name', 'email', 'phone', 'member_id']))->save();
+            $phoneChanged = ($validated['phone'] ?? null) !== $managedUser->phone;
+            $managedUser->fill(Arr::only($validated, ['name', 'email', 'phone', 'member_id']));
+            $managedUser->forceFill([
+                'phone_verified_at' => $phoneChanged || ! ($validated['phone_verified'] ?? false)
+                    || blank($validated['phone'] ?? null)
+                    ? null
+                    : ($managedUser->phone_verified_at ?? now()),
+            ])->save();
 
             if ($roles !== null) {
                 $managedUser->syncRoles($roles);
             }
         });
+
+        $managedUser->refresh();
+
+        if ($previousPhone !== $managedUser->phone
+            || ($previousPhoneVerifiedAt !== null) !== ($managedUser->phone_verified_at !== null)) {
+            LoginSecurityEvent::record('phone_verification_changed', $managedUser, $request, [
+                'actor_id' => $request->user()->id,
+                'verified' => $managedUser->phone_verified_at !== null,
+                'phone_changed' => $previousPhone !== $managedUser->phone,
+            ]);
+        }
 
         return redirect()->route('users.show', $managedUser)
             ->with('success', __('users.updated'));

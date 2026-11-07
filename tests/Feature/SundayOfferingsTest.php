@@ -10,6 +10,7 @@ use App\Models\FinancialTransactionAudit;
 use App\Models\Member;
 use App\Models\Setting;
 use App\Models\User;
+use App\Services\SmsSegmentEstimator;
 use App\Services\SwalaSmsService;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Queue;
@@ -297,6 +298,16 @@ it('searches active members without losing envelope zeroes or exposing deleted m
         ->assertForbidden();
 });
 
+it('finds an E.164 member phone by a local phone prefix', function () {
+    $user = sundayOfferingTestUser(['create Sunday offerings']);
+    $member = sundayOfferingTestMember(['phone' => '+255712345678']);
+
+    $this->actingAs($user)
+        ->getJson(route('finance.sunday-offerings.members.search', ['search' => '071234']))
+        ->assertOk()
+        ->assertJsonPath('data.0.id', $member->id);
+});
+
 it('omits payment, date, and reference fields and denies access without create permission', function () {
     $user = sundayOfferingTestUser(['create Sunday offerings']);
 
@@ -389,7 +400,7 @@ it('keeps a saved transaction when the SMS provider rejects the confirmation', f
     $smsLog = FinancialSmsLog::query()->where('financial_transaction_id', $transaction->id)->firstOrFail();
     Http::preventStrayRequests();
     Http::fake([
-        'https://api.swalasms.com/v1/sms/messages' => Http::response([
+        'https://api.swalasms.com/v2/sms/send-bulk' => Http::response([
             'success' => false,
             'message' => 'Invalid recipient',
             'error_code' => 'INVALID_RECIPIENT',
@@ -397,7 +408,7 @@ it('keeps a saved transaction when the SMS provider rejects the confirmation', f
         ], 422),
     ]);
 
-    (new SendFinancialSms($smsLog->id))->handle(app(SwalaSmsService::class));
+    (new SendFinancialSms($smsLog->id))->handle(app(SwalaSmsService::class), app(SmsSegmentEstimator::class));
 
     expect($smsLog->fresh()->status)->toBe('failed')
         ->and($transaction->fresh()->amount)->toBe('125.00');

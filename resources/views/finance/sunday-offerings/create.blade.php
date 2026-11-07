@@ -158,7 +158,7 @@
                 <p class="text-xs text-slate-500">{{ __('finance.sunday_offering_search_hint') }}</p>
                 @error('member_id')<p role="alert" class="text-sm text-rose-300">{{ $message }}</p>@enderror
                 <p x-cloak x-show="loading" role="status" aria-live="polite" class="flex items-center gap-2 text-sm text-blue-300">
-                    <span class="h-4 w-4 animate-spin rounded-full border-2 border-blue-300/40 border-t-blue-300"></span>
+                    <span class="kkkt-loader" aria-hidden="true"></span>
                     {{ __('finance.sunday_offering_searching') }}
                 </p>
                 <p x-cloak x-show="message" aria-live="polite" class="text-sm text-slate-400" x-text="message"></p>

@@ -56,13 +56,13 @@
                 </div>
 
                 <div class="flex flex-wrap gap-3">
-                    <a
+                    <a data-no-loading
                         href="{{ route('members.import.template', 'xlsx') }}"
                         class="rounded-lg border border-gray-700 px-4 py-3 text-sm font-semibold text-gray-200 transition hover:bg-gray-800"
                     >
                         {{ __('members.download_excel_template') }}
                     </a>
-                    <a
+                    <a data-no-loading
                         href="{{ route('members.import.template', 'csv') }}"
                         class="rounded-lg border border-gray-700 px-4 py-3 text-sm font-semibold text-gray-200 transition hover:bg-gray-800"
                     >

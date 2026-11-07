@@ -7,6 +7,8 @@ use Illuminate\Database\Eloquent\Builder;
 
 class BulkSmsRecipientSelector
 {
+    public function __construct(private readonly MobilePhoneNumber $phones) {}
+
     /**
      * @param  array<string, mixed>  $criteria
      * @return Builder<Member>
@@ -29,6 +31,10 @@ class BulkSmsRecipientSelector
                         ->orWhere('membership_number', 'like', '%'.$search.'%')
                         ->orWhere('envelope_number', 'like', '%'.$search.'%')
                         ->orWhere('phone', 'like', '%'.$search.'%');
+
+                    foreach ($this->phones->searchAlternates($search) as $alternate) {
+                        $query->orWhere('phone', 'like', '%'.$alternate.'%');
+                    }
                 });
             })
             ->when($criteria['department_id'] ?? null, function (Builder $query, int|string $departmentId): void {

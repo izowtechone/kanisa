@@ -39,9 +39,9 @@
                     <a href="#church-information" class="rounded-lg border border-slate-700 px-3 py-2 text-sm text-slate-300 transition hover:border-blue-500 hover:text-white">{{ __('settings.church_information') }}</a>
                     <a href="#logo-settings" class="rounded-lg border border-slate-700 px-3 py-2 text-sm text-slate-300 transition hover:border-blue-500 hover:text-white">{{ __('settings.logo_settings') }}</a>
                     <a href="#favicon-settings" class="rounded-lg border border-slate-700 px-3 py-2 text-sm text-slate-300 transition hover:border-blue-500 hover:text-white">{{ __('settings.favicon_settings') }}</a>
-                    @can('manage SMS settings')
+                    @if ($canManageSmsSettings)
                         <a href="#sms-notifications" class="rounded-lg border border-slate-700 px-3 py-2 text-sm text-slate-300 transition hover:border-blue-500 hover:text-white">{{ __('settings.sms_settings') }}</a>
-                    @endcan
+                    @endif
                 </nav>
 
                 <section id="general-settings" class="scroll-mt-24 space-y-5 rounded-2xl border border-slate-800 bg-[#111a2e] p-5 sm:p-7">
@@ -254,9 +254,9 @@
                 </section>
             @endif
 
-            @can('manage SMS settings')
+            @if ($canManageSmsSettings)
                 @include('settings.partials.sms-notifications')
-            @endcan
+            @endif
         </div>
     </div>
 </x-app-layout>

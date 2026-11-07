@@ -12,6 +12,8 @@ class SwalaSmsService
 {
     public const MAX_BULK_RECIPIENTS = 1000;
 
+    public function __construct(private readonly MobilePhoneNumber $phones) {}
+
     /**
      * @var list<string>
      */
@@ -20,26 +22,47 @@ class SwalaSmsService
     /**
      * Sends one SMS. A 202 response means the provider queued it, not that the handset received it.
      *
-     * @return array{uid: string, status: string, units: ?int, segments: ?int, sent_at: ?string, delivered_at: ?string, failure_reason: ?string, replay: bool}
+     * @return array{uid: string, campaign_uid: string, status: string, units: ?int, segments: ?int, sent_at: ?string, delivered_at: ?string, failure_reason: ?string, replay: bool}
      */
     public function sendMessage(string $phone, string $message, string $idempotencyKey): array
     {
-        $response = $this->send('post', '/v1/sms/messages', [
-            'recipient' => $this->toE164($phone),
-            'sender_id' => $this->senderId(),
-            'body' => $message,
-        ], ['Idempotency-Key' => $idempotencyKey]);
-
-        $data = $response->json('data');
-
-        if (! is_array($data)) {
-            throw SwalaSmsException::invalidResponse($response->status());
+        try {
+            $recipient = $this->toE164($phone);
+        } catch (RuntimeException) {
+            throw new SwalaSmsException(
+                'The recipient phone number is invalid or not a mobile number.',
+                errorCode: 'INVALID_RECIPIENT',
+                acceptanceState: SwalaSmsException::NOT_ACCEPTED,
+            );
         }
 
-        $result = $this->normalizeMessage($data, $response->status());
-        $result['replay'] = ($data['idempotent_replay'] ?? false) === true;
+        $result = $this->sendBulk([['to' => $recipient]], $message, 'KKKT CMS Notifications', $idempotencyKey);
+        $digits = $this->digits($recipient);
 
-        return $result;
+        if (isset($result['failures'][$digits])) {
+            throw new SwalaSmsException(
+                $result['failures'][$digits],
+                errorCode: 'RECIPIENT_REJECTED',
+                acceptanceState: SwalaSmsException::NOT_ACCEPTED,
+            );
+        }
+
+        $messageResult = $result['messages'][$digits] ?? null;
+        if ($messageResult === null) {
+            throw SwalaSmsException::invalidResponse(202);
+        }
+
+        return [
+            'uid' => $messageResult['uid'],
+            'campaign_uid' => $result['campaign_uid'],
+            'status' => $messageResult['status'],
+            'units' => $messageResult['units'],
+            'segments' => null,
+            'sent_at' => null,
+            'delivered_at' => null,
+            'failure_reason' => null,
+            'replay' => $result['replay'],
+        ];
     }
 
     /**
@@ -47,7 +70,7 @@ class SwalaSmsService
      * Each recipient is an E.164 number plus optional tag values used by `{tag}` placeholders.
      *
      * @param  list<array{to: string, tags?: array<string, string>}>  $recipients
-     * @return array{campaign_uid: string, messages: array<string, array{uid: string, status: string, units: ?int}>, failures: array<string, string>}
+     * @return array{campaign_uid: string, messages: array<string, array{uid: string, status: string, units: ?int}>, failures: array<string, string>, replay: bool}
      */
     public function sendBulk(array $recipients, string $message, ?string $campaignName, string $idempotencyKey): array
     {
@@ -58,7 +81,9 @@ class SwalaSmsService
         $payloadRecipients = array_map(function (array $recipient): string|array {
             $tags = array_filter($recipient['tags'] ?? [], fn ($value): bool => is_string($value));
 
-            return $tags === [] ? $recipient['to'] : ['to' => $recipient['to']] + $tags;
+            $phone = $this->toE164($recipient['to']);
+
+            return $tags === [] ? $phone : ['to' => $phone] + $tags;
         }, $recipients);
 
         $payload = [
@@ -74,27 +99,30 @@ class SwalaSmsService
         $response = $this->send('post', '/v2/sms/send-bulk', $payload, ['Idempotency-Key' => $idempotencyKey]);
         $data = $response->json('data');
 
-        if (! is_array($data) || ! is_string($data['uid'] ?? null) || $data['uid'] === '') {
+        if (! is_array($data) || ! is_string($data['uid'] ?? null) || $data['uid'] === ''
+            || ! is_array($data['messages'] ?? null) || ! is_array($data['failures'] ?? null)) {
             throw SwalaSmsException::invalidResponse($response->status());
         }
 
         $messages = [];
 
-        foreach ((array) ($data['messages'] ?? []) as $entry) {
-            if (! is_array($entry) || ! is_string($entry['to'] ?? null) || ! is_string($entry['message_uid'] ?? null)) {
-                continue;
+        foreach ($data['messages'] as $entry) {
+            if (! is_array($entry) || ! is_string($entry['to'] ?? null)
+                || ! is_string($entry['message_uid'] ?? null) || $entry['message_uid'] === ''
+                || ! in_array($entry['status'] ?? null, self::MESSAGE_STATUSES, true)) {
+                throw SwalaSmsException::invalidResponse($response->status());
             }
 
             $messages[$this->digits($entry['to'])] = [
                 'uid' => $entry['message_uid'],
-                'status' => in_array($entry['status'] ?? null, self::MESSAGE_STATUSES, true) ? $entry['status'] : 'queued',
+                'status' => $entry['status'],
                 'units' => isset($entry['units']) && is_numeric($entry['units']) ? (int) $entry['units'] : null,
             ];
         }
 
         $failures = [];
 
-        foreach ((array) ($data['failures'] ?? []) as $entry) {
+        foreach ($data['failures'] as $entry) {
             if (! is_array($entry)) {
                 continue;
             }
@@ -111,6 +139,7 @@ class SwalaSmsService
             'campaign_uid' => $data['uid'],
             'messages' => $messages,
             'failures' => $failures,
+            'replay' => ($data['idempotent_replay'] ?? false) === true,
         ];
     }
 
@@ -149,32 +178,62 @@ class SwalaSmsService
     }
 
     /**
+     * @return list<array{sender_id: string, status: string, is_usable: bool, is_default: ?bool, country_code: ?string, country_name: ?string, purpose: ?string, updated_at: ?string}>
+     */
+    public function senderIds(string $apiKey): array
+    {
+        $response = $this->send('get', '/v1/sender-ids', apiKey: $apiKey);
+        $entries = $response->json('data');
+
+        if ($response->status() !== 200 || $response->json('success') !== true
+            || ! is_array($entries) || ! array_is_list($entries)) {
+            throw SwalaSmsException::invalidResponse($response->status());
+        }
+
+        $senders = [];
+        foreach ($entries as $entry) {
+            if (! is_array($entry) || ! is_string($entry['sender_id'] ?? null)
+                || trim($entry['sender_id']) === '' || ! is_string($entry['status'] ?? null)
+                || trim($entry['status']) === '' || ! is_bool($entry['is_usable'] ?? null)) {
+                throw SwalaSmsException::invalidResponse($response->status());
+            }
+
+            foreach (['country_code', 'country_name', 'purpose', 'updated_at'] as $field) {
+                if (isset($entry[$field]) && ! is_string($entry[$field])) {
+                    throw SwalaSmsException::invalidResponse($response->status());
+                }
+            }
+
+            if (isset($entry['is_default']) && ! is_bool($entry['is_default'])) {
+                throw SwalaSmsException::invalidResponse($response->status());
+            }
+
+            $senders[] = [
+                'sender_id' => $entry['sender_id'],
+                'status' => $entry['status'],
+                'is_usable' => $entry['is_usable'],
+                'is_default' => $entry['is_default'] ?? null,
+                'country_code' => $entry['country_code'] ?? null,
+                'country_name' => $entry['country_name'] ?? null,
+                'purpose' => $entry['purpose'] ?? null,
+                'updated_at' => $entry['updated_at'] ?? null,
+            ];
+        }
+
+        return $senders;
+    }
+
+    /**
      * Returns the digits-only phone format used for storage and comparison.
      */
     public function normalizePhone(string $phone): string
     {
-        $digits = preg_replace('/\D+/', '', $phone);
-
-        if ($digits === null) {
-            throw new RuntimeException('The member phone number is invalid.');
-        }
-
-        if (str_starts_with($digits, '0')) {
-            $digits = '255'.substr($digits, 1);
-        } elseif (strlen($digits) === 9) {
-            $digits = '255'.$digits;
-        }
-
-        if (! preg_match('/^[1-9]\d{7,14}$/', $digits)) {
-            throw new RuntimeException('The member phone number is invalid.');
-        }
-
-        return $digits;
+        return substr($this->phones->normalize($phone), 1);
     }
 
     public function toE164(string $phone): string
     {
-        return '+'.$this->normalizePhone($phone);
+        return $this->phones->normalize($phone);
     }
 
     private function senderId(): string
@@ -192,9 +251,9 @@ class SwalaSmsService
      * @param  array<string, mixed>  $payload
      * @param  array<string, string>  $headers
      */
-    private function send(string $method, string $path, array $payload = [], array $headers = []): Response
+    private function send(string $method, string $path, array $payload = [], array $headers = [], ?string $apiKey = null): Response
     {
-        $apiKey = SmsSettings::apiKey();
+        $apiKey ??= SmsSettings::apiKey();
 
         if ($apiKey === '') {
             throw SwalaSmsException::notConfigured();
@@ -206,7 +265,7 @@ class SwalaSmsService
                 ->withToken($apiKey)
                 ->withHeaders($headers)
                 ->connectTimeout(5)
-                ->timeout(20);
+                ->timeout(SmsSettings::timeout());
 
             $response = $method === 'post'
                 ? $request->asJson()->post($path, $payload)
@@ -231,8 +290,10 @@ class SwalaSmsService
         $state = is_string($state) ? $state : null;
         $retryable = $status === 429 || $status === 408 || $status >= 500;
 
-        if ($state === null) {
-            $state = $status === 429 || ($status >= 400 && $status < 500)
+        if ($status === 409) {
+            $state = SwalaSmsException::UNKNOWN;
+        } elseif ($state === null) {
+            $state = $status >= 400 && $status < 500 && $status !== 408
                 ? SwalaSmsException::NOT_ACCEPTED
                 : SwalaSmsException::UNKNOWN;
         }

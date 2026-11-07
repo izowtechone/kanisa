@@ -15,9 +15,11 @@
         <link href="https://fonts.bunny.net/css?family=figtree:400,500,600,700&display=swap" rel="stylesheet">
 
         <style>{!! $brandCss !!}</style>
+        <x-pwa-head />
         @vite(['resources/css/app.css', 'resources/js/app.js'])
     </head>
     <body class="bg-surface-base font-sans text-slate-200 antialiased">
+        <x-page-loader />
         <div class="grid min-h-screen lg:grid-cols-2">
             <aside class="relative hidden flex-col justify-between overflow-hidden border-r border-slate-800 bg-surface-raised p-12 lg:flex">
                 <div class="absolute inset-0 bg-gradient-to-br from-blue-600/10 via-transparent to-transparent" aria-hidden="true"></div>

@@ -33,6 +33,16 @@
             @error('phone')<span class="text-xs text-rose-300">{{ $message }}</span>@enderror
             @unless ($isEdit)<span class="text-xs text-slate-500">{{ __('users.phone_required_for_invitation') }}</span>@endunless
         </label>
+        @if ($isEdit)
+            <label class="flex items-start gap-3 rounded-lg border border-slate-700 p-3 text-sm text-slate-300">
+                <input type="hidden" name="phone_verified" value="0">
+                <input type="checkbox" name="phone_verified" value="1" @checked((bool) old('phone_verified', $managedUser->phone_verified_at !== null)) class="mt-1 rounded border-slate-600 bg-slate-900 text-blue-600 focus:ring-blue-500">
+                <span>
+                    <span class="block font-medium text-white">{{ __('users.phone_verified') }}</span>
+                    <span class="mt-1 block text-xs text-slate-500">{{ __('users.phone_verified_help') }}</span>
+                </span>
+            </label>
+        @endif
         <label class="block space-y-2 text-sm text-slate-300">
             <span>{{ __('users.member') }}</span>
             <select name="member_id" class="w-full rounded-lg border-slate-700 bg-[#0b1120] text-slate-100">

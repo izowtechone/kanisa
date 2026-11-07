@@ -15,6 +15,8 @@
 
     <div role="note" class="space-y-2 rounded-xl border border-amber-800/70 bg-amber-950/30 p-4 text-sm text-amber-200">
         <p>{{ __('finance.sms_delivery_tracking_note') }}</p>
+        <p>{{ __('finance.sms_consent_policy') }}</p>
+        <p>{{ __('finance.swala_sender_verification_note') }}</p>
     </div>
 
     <div class="space-y-3 rounded-xl border border-slate-800 bg-[#0b1120] p-4 text-sm text-slate-300">
@@ -39,13 +41,89 @@
                 @endif
             </div>
             @if ($smsSettings['credentialsConfigured'])
-                <form method="POST" action="{{ route('finance.sms.settings.test-connection') }}">
-                    @csrf
-                    <button type="submit" class="rounded-lg border border-blue-500/40 bg-blue-600/20 px-4 py-2 text-sm font-semibold text-blue-200 transition hover:bg-blue-600/30">{{ __('finance.swala_test_connection') }}</button>
-                </form>
+                <div class="flex flex-wrap gap-3">
+                    <form method="POST" action="{{ route('finance.sms.settings.test-connection') }}">
+                        @csrf
+                        <button type="submit" class="rounded-lg border border-blue-500/40 bg-blue-600/20 px-4 py-2 text-sm font-semibold text-blue-200 transition hover:bg-blue-600/30">{{ __('finance.swala_test_connection') }}</button>
+                    </form>
+                </div>
             @endif
         </div>
         @error('sms')<p class="text-xs text-rose-300">{{ $message }}</p>@enderror
+    </div>
+
+    <div class="space-y-3 rounded-xl border border-slate-800 bg-[#0b1120] p-4 text-sm text-slate-300">
+        <h3 class="font-semibold text-white">{{ __('finance.swala_sender_list_title') }}</h3>
+        <p class="font-semibold text-white">{{ __('finance.swala_sender_id') }}: {{ $smsSettings['senderId'] ?: '—' }}</p>
+        <p>{{ __('finance.swala_sender_status') }}: {{ __('finance.swala_sender_statuses.'.$smsSettings['senderVerification']['status']) }}</p>
+        @if ($smsSettings['senderVerification']['checked_at'])
+            <p>{{ __('finance.swala_last_checked', ['date' => \Illuminate\Support\Carbon::parse($smsSettings['senderVerification']['checked_at'])->format('Y-m-d H:i')]) }}</p>
+        @else
+            <p>{{ __('finance.swala_never_checked') }}</p>
+        @endif
+        @if ($smsSettings['senderVerification']['reason'])
+            <p>{{ __('finance.swala_sender_verification_reasons.'.$smsSettings['senderVerification']['reason']) }}</p>
+        @endif
+        @if ($smsSettings['senderVerification']['status'] !== 'approved')
+            <p role="alert" class="text-amber-200">{{ __('finance.swala_sender_send_warning') }}</p>
+        @endif
+        @if ($smsSettings['senderList']['success_at'])
+            <p>{{ __('finance.swala_sender_list_last_success', ['date' => \Illuminate\Support\Carbon::parse($smsSettings['senderList']['success_at'])->format('Y-m-d H:i')]) }}</p>
+            @if ($smsSettings['senderList']['error'])
+                <p role="alert" class="text-amber-200">{{ __('finance.swala_sender_list_stale') }}</p>
+            @endif
+            @if (count($smsSettings['senderList']['senders']))
+                <div class="overflow-x-auto">
+                    <table class="w-full text-left text-sm">
+                        <thead>
+                            <tr class="border-b border-slate-700">
+                                @foreach (['swala_sender_id', 'swala_sender_country', 'swala_sender_purpose', 'swala_sender_status', 'swala_sender_usable', 'swala_sender_default', 'swala_sender_updated'] as $heading)
+                                    <th scope="col" class="px-3 py-2">{{ __('finance.'.$heading) }}</th>
+                                @endforeach
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach ($smsSettings['senderList']['senders'] as $sender)
+                                <tr class="border-b border-slate-800">
+                                    <td class="px-3 py-2">{{ $sender['sender_id'] }}</td>
+                                    <td class="px-3 py-2">{{ $sender['country_name'] ?: '—' }} {{ $sender['country_code'] }}</td>
+                                    <td class="px-3 py-2">{{ $sender['purpose'] ?: '—' }}</td>
+                                    <td class="px-3 py-2">{{ in_array($sender['status'], ['approved', 'processing', 'pending', 'rejected', 'unverified', 'suspended'], true) ? __('finance.swala_sender_statuses.'.$sender['status']) : $sender['status'] }}</td>
+                                    <td class="px-3 py-2">{{ $sender['is_usable'] ? __('finance.swala_sender_yes') : __('finance.swala_sender_no') }}</td>
+                                    <td class="px-3 py-2">{{ $sender['is_default'] === null ? '—' : ($sender['is_default'] ? __('finance.swala_sender_yes') : __('finance.swala_sender_no')) }}</td>
+                                    <td class="px-3 py-2">{{ $sender['updated_at'] ?: '—' }}</td>
+                                </tr>
+                            @endforeach
+                        </tbody>
+                    </table>
+                </div>
+            @else
+                <p>{{ __('finance.swala_sender_list_empty') }}</p>
+            @endif
+        @endif
+        <form method="POST" action="{{ route('finance.sms.settings.verify-sender') }}">
+            @csrf
+            <button type="submit" class="rounded-lg border border-blue-500/40 bg-blue-600/20 px-4 py-2 text-sm font-semibold text-blue-200 transition hover:bg-blue-600/30">{{ __('finance.swala_verify_again') }}</button>
+        </form>
+        @if ($smsSettings['senderList']['success_at'] && ! $smsSettings['senderList']['error'])
+            @php($selectableSenders = collect($smsSettings['senderList']['senders'])->filter(fn ($sender) => $sender['status'] === 'approved' && $sender['is_usable'] && mb_strlen($sender['sender_id']) <= 32)->unique('sender_id'))
+            @if ($selectableSenders->isNotEmpty())
+                <form method="POST" action="{{ route('finance.sms.settings.select-sender') }}" class="flex flex-wrap items-end gap-3">
+                    @csrf
+                    <label class="block space-y-2">
+                        <span>{{ __('finance.swala_sender_select') }}</span>
+                        <select name="sender_id" required class="block rounded-lg border-slate-700 bg-[#0b1120] text-slate-100">
+                            <option value="">{{ __('finance.swala_sender_select_placeholder') }}</option>
+                            @foreach ($selectableSenders as $sender)
+                                <option value="{{ $sender['sender_id'] }}">{{ $sender['sender_id'] }}</option>
+                            @endforeach
+                        </select>
+                    </label>
+                    <button type="submit" class="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white">{{ __('finance.swala_sender_save_selection') }}</button>
+                </form>
+                @error('sender_id')<p role="alert" class="text-rose-300">{{ $message }}</p>@enderror
+            @endif
+        @endif
     </div>
 
     <form
@@ -87,17 +165,15 @@
                 @error('swala_api_key')<span class="text-xs text-rose-300">{{ $message }}</span>@enderror
             </label>
             <label class="block space-y-2 text-sm text-slate-300">
-                <span>{{ __('finance.swala_webhook_secret') }}</span>
-                <input type="password" name="swala_webhook_secret" autocomplete="new-password" placeholder="{{ $smsSettings['webhookSecretConfigured'] ? __('finance.credentials_placeholder') : '' }}" class="w-full rounded-lg border-slate-700 bg-[#0b1120] text-slate-100">
-                <span class="block text-xs text-slate-500">{{ $smsSettings['webhookSecretConfigured'] ? __('finance.swala_webhook_secret_configured') : __('finance.swala_webhook_secret_missing') }}</span>
-                @error('swala_webhook_secret')<span class="text-xs text-rose-300">{{ $message }}</span>@enderror
+                <span>{{ __('finance.swala_timeout') }}</span>
+                <input type="number" name="swala_timeout" min="1" max="60" required value="{{ old('swala_timeout', $smsSettings['timeout']) }}" class="w-full rounded-lg border-slate-700 bg-[#0b1120] text-slate-100">
+                <span class="block text-xs text-slate-500">{{ __('finance.swala_timeout_help') }}</span>
+                @error('swala_timeout')<span class="text-xs text-rose-300">{{ $message }}</span>@enderror
             </label>
         </div>
 
         <div class="rounded-xl border border-slate-800 bg-[#0b1120] p-4 text-sm text-slate-300">
-            <p class="font-semibold text-white">{{ __('finance.swala_webhook_url') }}</p>
-            <p class="mt-1 break-all font-mono text-xs text-blue-300">{{ $smsSettings['webhookUrl'] }}</p>
-            <p class="mt-2 text-xs text-slate-400">{{ __('finance.swala_webhook_help') }}</p>
+            <p>{{ __('finance.swala_delivery_status_polling') }}</p>
         </div>
 
         <label class="flex items-start gap-3 text-sm text-slate-300">
@@ -109,7 +185,8 @@
         <div class="grid gap-5 sm:grid-cols-2">
             <label class="block space-y-2 text-sm text-slate-300">
                 <span>{{ __('finance.swala_sender_id') }}</span>
-                <input name="swala_sender_id" maxlength="20" value="{{ old('swala_sender_id', $smsSettings['senderId']) }}" autocomplete="off" class="w-full rounded-lg border-slate-700 bg-[#0b1120] text-slate-100">
+                <input name="swala_sender_id" maxlength="32" value="{{ old('swala_sender_id', $smsSettings['senderId']) }}" autocomplete="off" class="w-full rounded-lg border-slate-700 bg-[#0b1120] text-slate-100">
+                <span class="block text-xs text-slate-400">{{ __('finance.swala_sender_manual_help') }}</span>
                 @error('swala_sender_id')<span class="text-xs text-rose-300">{{ $message }}</span>@enderror
             </label>
             <label class="block space-y-2 text-sm text-slate-300">

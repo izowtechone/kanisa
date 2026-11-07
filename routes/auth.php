@@ -5,10 +5,12 @@ use App\Http\Controllers\Auth\AuthenticatedSessionController;
 use App\Http\Controllers\Auth\ConfirmablePasswordController;
 use App\Http\Controllers\Auth\EmailVerificationNotificationController;
 use App\Http\Controllers\Auth\EmailVerificationPromptController;
+use App\Http\Controllers\Auth\LoginOtpController;
 use App\Http\Controllers\Auth\NewPasswordController;
 use App\Http\Controllers\Auth\PasswordController;
 use App\Http\Controllers\Auth\PasswordResetLinkController;
 use App\Http\Controllers\Auth\VerifyEmailController;
+use App\Http\Middleware\EnsureOtpVerified;
 use Illuminate\Support\Facades\Route;
 
 /*
@@ -18,7 +20,7 @@ use Illuminate\Support\Facades\Route;
 | Njia zinazopatikana kwa mtu ambaye hajaingia kwenye mfumo.
 */
 
-Route::middleware('guest')->group(function () {
+Route::middleware([EnsureOtpVerified::class, 'guest'])->group(function () {
 
     // Login
     Route::get('login', [AuthenticatedSessionController::class, 'create'])
@@ -41,6 +43,21 @@ Route::middleware('guest')->group(function () {
         ->name('password.store');
 });
 
+Route::get('login/otp', [LoginOtpController::class, 'show'])
+    ->middleware('throttle:10,1')
+    ->name('login.otp.show');
+
+Route::post('login/otp', [LoginOtpController::class, 'verify'])
+    ->middleware('throttle:10,1')
+    ->name('login.otp.verify');
+
+Route::post('login/otp/resend', [LoginOtpController::class, 'resend'])
+    ->middleware('throttle:3,1')
+    ->name('login.otp.resend');
+
+Route::post('login/otp/cancel', [LoginOtpController::class, 'cancel'])
+    ->name('login.otp.cancel');
+
 /*
 |--------------------------------------------------------------------------
 | Authenticated Routes
@@ -48,7 +65,7 @@ Route::middleware('guest')->group(function () {
 | Njia zinazopatikana kwa mtumiaji aliyeingia kwenye mfumo.
 */
 
-Route::middleware('auth')->group(function () {
+Route::middleware(['auth', EnsureOtpVerified::class])->group(function () {
 
     // Email Verification
     Route::get('verify-email', EmailVerificationPromptController::class)
